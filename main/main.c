@@ -9,11 +9,17 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "math.h"
+
+#define HI_BYTE(x) ((x) >> 8) & 0xff
+#define LO_BYTE(x) (x) & 0xff
 
 #define TYPEDEF(x) typedef uint##x##_t uint##x
 TYPEDEF(8);
 TYPEDEF(16);
 TYPEDEF(32);
+
+#define M_PI 3.14159265358979323846
 
 static const char *TAG = "birdbox";
 
@@ -21,7 +27,10 @@ static const char *TAG = "birdbox";
 #define I2S_LRCLK  22
 #define I2S_DOUT   26
 
-#define SAMPLE_RATE 44100
+#define SAMPLE_RATE 48000
+#define TONE_FREQ       1000
+#define AMPLITUDE       6000       // Low amplitude to protect speaker
+#define BUFFER_SAMPLES  256        // Per channel
 
 #define TRIGGER_GPIO GPIO_NUM_4
 
@@ -48,7 +57,7 @@ static void i2s_init(uint32_t sample_rate, i2s_data_bit_width_t bits, uint16_t c
 
     i2s_std_config_t tx_std_cfg = {
         .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bits, channels),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bits, channels),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = I2S_BCLK,
@@ -74,9 +83,39 @@ static void i2s_write(const uint8* data, const uint16 data_len, size_t* written)
     }
 }
 
+static uint16 test_idx = 0;
+
+void play_sine_task(void *arg)
+{
+    // Stereo buffer: Left + Right
+    uint8 buf[BUFFER_SAMPLES * 2 * sizeof(uint16)];
+    size_t bytes_written;
+
+    while (1) {
+        for (int i = 0; i < BUFFER_SAMPLES; i++) {
+            buf[4 * i]       = HI_BYTE(test_idx);
+            buf[4 * i + 1]   = LO_BYTE(test_idx);
+            buf[4 * i + 2]   = HI_BYTE(test_idx);
+            buf[4 * i + 3]   = LO_BYTE(test_idx);
+            ESP_LOGI(TAG, "0x%02x%02x %d", buf[4 * i], buf[4 * i + 1], test_idx);
+            if (i % 2 == 0)
+            {
+                test_idx = 0xaaaa;
+            }
+            else
+            {
+                test_idx = 0;
+            }
+        }
+        ESP_LOGI(TAG, "writing %u bytes", sizeof(buf));
+        i2s_write(buf, sizeof(buf), &bytes_written);
+    }
+}
+
 static void play(void)
 {
     size_t written = 0;
+    // call this after i2s_start(...) configured for 44100, mono, 16-bit
     if (fseek(f, current, SEEK_SET))
     {
         ESP_LOGE(TAG, "Failed to seek position %u in file", current);
@@ -114,7 +153,7 @@ static void reset(void)
 
 static void play_task(void *arg)
 {
-    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
 
     f = fopen("/littlefs/sound_44100_1ch.wav", "rb");
 
@@ -220,5 +259,6 @@ void app_main(void)
 
     // Start playback task
     play_sema = xSemaphoreCreateBinary();
-    xTaskCreate(play_task, "play_task", 4096, NULL, 5, NULL);
+    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+    xTaskCreate(play_sine_task, "play_task", 4096, NULL, 5, NULL);
 }
