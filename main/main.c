@@ -27,10 +27,12 @@ static const char *TAG = "birdbox";
 #define I2S_LRCLK  22
 #define I2S_DOUT   26
 
-#define SAMPLE_RATE 48000
-#define TONE_FREQ       1000
+#define SAMPLE_RATE     44100
+#define TONE_FREQ       433
 #define AMPLITUDE       6000       // Low amplitude to protect speaker
-#define BUFFER_SAMPLES  256        // Per channel
+#define BUFFER_SAMPLES  256       // Per channel
+
+#define NB_CHANNELS 2
 
 #define TRIGGER_GPIO GPIO_NUM_4
 
@@ -83,31 +85,24 @@ static void i2s_write(const uint8* data, const uint16 data_len, size_t* written)
     }
 }
 
-static uint16 test_idx = 0;
-
 void play_sine_task(void *arg)
 {
     // Stereo buffer: Left + Right
-    uint8 buf[BUFFER_SAMPLES * 2 * sizeof(uint16)];
+    uint8 buf[BUFFER_SAMPLES * sizeof(uint16)];
     size_t bytes_written;
+    float phase = 0.0f;
+    float phase_inc = 2.0f * M_PI * TONE_FREQ / SAMPLE_RATE;
 
     while (1) {
         for (int i = 0; i < BUFFER_SAMPLES; i++) {
-            buf[4 * i]       = HI_BYTE(test_idx);
-            buf[4 * i + 1]   = LO_BYTE(test_idx);
-            buf[4 * i + 2]   = HI_BYTE(test_idx);
-            buf[4 * i + 3]   = LO_BYTE(test_idx);
-            ESP_LOGI(TAG, "0x%02x%02x %d", buf[4 * i], buf[4 * i + 1], test_idx);
-            if (i % 2 == 0)
-            {
-                test_idx = 0xaaaa;
-            }
-            else
-            {
-                test_idx = 0;
+            int16_t sample = (int16_t)(AMPLITUDE * sinf(phase));
+            buf[2 * i]       = LO_BYTE(sample);
+            buf[2 * i + 1]   = HI_BYTE(sample);
+            phase += phase_inc;
+            if (phase >= 2.0f * M_PI) {
+                phase -= 2.0f * M_PI;
             }
         }
-        ESP_LOGI(TAG, "writing %u bytes", sizeof(buf));
         i2s_write(buf, sizeof(buf), &bytes_written);
     }
 }
@@ -153,7 +148,7 @@ static void reset(void)
 
 static void play_task(void *arg)
 {
-    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
 
     f = fopen("/littlefs/sound_44100_1ch.wav", "rb");
 
@@ -259,6 +254,6 @@ void app_main(void)
 
     // Start playback task
     play_sema = xSemaphoreCreateBinary();
-    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+    i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
     xTaskCreate(play_sine_task, "play_task", 4096, NULL, 5, NULL);
 }
