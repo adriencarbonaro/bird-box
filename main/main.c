@@ -19,8 +19,6 @@ TYPEDEF(8);
 TYPEDEF(16);
 TYPEDEF(32);
 
-#define M_PI 3.14159265358979323846
-
 static const char *TAG = "birdbox";
 
 #define I2S_BCLK   25
@@ -28,20 +26,12 @@ static const char *TAG = "birdbox";
 #define I2S_DOUT   26
 
 #define SAMPLE_RATE     44100
-#define TONE_FREQ       433
-#define AMPLITUDE       6000       // Low amplitude to protect speaker
-#define BUFFER_SAMPLES  256       // Per channel
-
-#define NB_CHANNELS 2
-
-#define TRIGGER_GPIO GPIO_NUM_4
 
 #define CHUNK_SIZE 4096
 #define CHUNK_TO_READ 1
 
 #define WAV_HEADER_SIZE 78
-
-static SemaphoreHandle_t play_sema;
+#define RIFF_HEADER_OFFSET 12
 
 static i2s_chan_handle_t tx_chan;
 
@@ -49,8 +39,27 @@ FILE *f;
 static uint8 buffer[CHUNK_SIZE] = { 0 };
 
 uint32 current = WAV_HEADER_SIZE;
-uint32 idx = 0;
 uint8 end = false;
+
+int find_data_offset(FILE *fp) {
+    char chunk_id[5] = {0};
+    uint32_t chunk_size;
+
+    fseek(fp, RIFF_HEADER_OFFSET, SEEK_SET);
+
+    while (fread(chunk_id, 1, 4, fp) == 4) {
+        fread(&chunk_size, 4, 1, fp);
+
+        if (strncmp(chunk_id, "data", 4) == 0) {
+            return ftell(fp); // Found "data" chunk, return offset
+        }
+
+        // Skip this chunk's data
+        fseek(fp, chunk_size, SEEK_CUR);
+    }
+
+    return -1; // data chunk not found
+}
 
 static void i2s_init(uint32_t sample_rate, i2s_data_bit_width_t bits, uint16_t channels)
 {
@@ -85,32 +94,9 @@ static void i2s_write(const uint8* data, const uint16 data_len, size_t* written)
     }
 }
 
-void play_sine_task(void *arg)
-{
-    // Stereo buffer: Left + Right
-    uint8 buf[BUFFER_SAMPLES * sizeof(uint16)];
-    size_t bytes_written;
-    float phase = 0.0f;
-    float phase_inc = 2.0f * M_PI * TONE_FREQ / SAMPLE_RATE;
-
-    while (1) {
-        for (int i = 0; i < BUFFER_SAMPLES; i++) {
-            int16_t sample = (int16_t)(AMPLITUDE * sinf(phase));
-            buf[2 * i]       = LO_BYTE(sample);
-            buf[2 * i + 1]   = HI_BYTE(sample);
-            phase += phase_inc;
-            if (phase >= 2.0f * M_PI) {
-                phase -= 2.0f * M_PI;
-            }
-        }
-        i2s_write(buf, sizeof(buf), &bytes_written);
-    }
-}
-
 static void play(void)
 {
     size_t written = 0;
-    // call this after i2s_start(...) configured for 44100, mono, 16-bit
     if (fseek(f, current, SEEK_SET))
     {
         ESP_LOGE(TAG, "Failed to seek position %u in file", current);
@@ -129,12 +115,9 @@ static void play(void)
         }
     }
 
-    ESP_LOGI(TAG, "(i: %u) (current: %u) 10 first bytes of read : %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x", idx, current, buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7], buffer[8], buffer[9]);
-    idx += 1;
     current += CHUNK_SIZE;
 
     i2s_write(buffer, CHUNK_SIZE, &written);
-    ESP_LOGI(TAG, "Done playing %u bytes", (unsigned)written);
 
     memset(buffer, 0, CHUNK_SIZE);
 }
@@ -142,7 +125,6 @@ static void play(void)
 static void reset(void)
 {
     current = WAV_HEADER_SIZE;
-    idx = 0;
     end = false;
 }
 
@@ -154,64 +136,35 @@ static void play_task(void *arg)
 
     while (1)
     {
-        // Wait for trigger
-        // if (xSemaphoreTake(play_sema, portMAX_DELAY) == pdTRUE)
-        // {
         if (end)
         {
             reset();
         }
         play();
-        // }
     }
 
     ESP_LOGI(TAG, "end is true, end playing");
 }
-
-// ISR for trigger GPIO
-// static void IRAM_ATTR trigger_isr(void *arg)
-// {
-//     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-//     xSemaphoreGiveFromISR(play_sema, &xHigherPriorityTaskWoken);
-//     if (xHigherPriorityTaskWoken)
-//     {
-//         portYIELD_FROM_ISR();
-//     }
-// }
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Birdbox with trigger input starting...");
 
     /* Print chip information */
-        esp_chip_info_t chip_info;
-        esp_chip_info(&chip_info);
-        ESP_LOGI(TAG, "This is %s chip with %d CPU cores, WiFi%s%s, ",
-               CONFIG_IDF_TARGET,
-               chip_info.cores,
-               (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
-               (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+    ESP_LOGI(TAG, "This is %s chip with %d CPU cores, WiFi%s%s, ",
+        CONFIG_IDF_TARGET,
+        chip_info.cores,
+        (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
+        (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
 
-        ESP_LOGI(TAG, "silicon revision %d, ", chip_info.revision);
+    ESP_LOGI(TAG, "silicon revision %d, ", chip_info.revision);
 
-        ESP_LOGI(TAG, "Free heap: %lu", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Free heap: %lu", esp_get_free_heap_size());
 
-        ESP_LOGI(TAG, "Now we are starting the LittleFs Demo ...");
+    ESP_LOGI(TAG, "Now we are starting the LittleFs Demo ...");
 
-
-    /* Configure trigger GPIO */
-    // gpio_config_t io_conf = {
-    //     .pin_bit_mask = (1ULL << TRIGGER_GPIO),
-    //     .mode = GPIO_MODE_INPUT,
-    //     .pull_up_en = GPIO_PULLUP_ENABLE,
-    //     .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //     .intr_type = GPIO_INTR_NEGEDGE  // falling edge
-    // };
-    // gpio_config(&io_conf);
-
-    /* Install ISR */
-    // gpio_install_isr_service(0);
-    // gpio_isr_handler_add(TRIGGER_GPIO, trigger_isr, NULL);
 
     /* Setup flash */
     esp_vfs_littlefs_conf_t conf = {
@@ -253,7 +206,6 @@ void app_main(void)
     }
 
     // Start playback task
-    play_sema = xSemaphoreCreateBinary();
     i2s_init(SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
-    xTaskCreate(play_sine_task, "play_task", 4096, NULL, 5, NULL);
+    xTaskCreate(play_task, "play_task", 4096, NULL, 5, NULL);
 }
