@@ -1,0 +1,17 @@
+menu "Birdbox Settings"
+
+config BIRDBOX_AMPLIFY_GAIN
+    int "Default volume (1-10)"
+    default 4
+    range 1 10
+
+config BIRDBOX_WAV_SERVER_URL
+    string "WiFi Server URL (format: http://[IP]:[PORT])"
+
+config BIRDBOX_WIFI_SSID
+    string "WiFi SSID"
+
+config BIRDBOX_WIFI_PASSWORD
+    string "WiFi Password"
+
+endmenu

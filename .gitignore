@@ -1,4 +1,16 @@
-build
-managed_components
+# ide config
 .vscode
+
+# build files
+build
+
+# auto-generated files
 main/version.c
+
+# sdk
+managed_components
+sdkconfig.old
+sdkconfig
+
+# wav-server audio files
+server/audio-files
