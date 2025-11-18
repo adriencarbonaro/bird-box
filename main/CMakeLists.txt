@@ -1,5 +1,11 @@
 set(srcs
     main.c
+    mqtt/mqtt.c
+    mqtt/mqtt.h
+    utils/types.h
+    utils/utils.h
+    wifi/wifi.c
+    wifi/wifi.h
 )
 
 # Generate version.c from git
@@ -16,4 +22,10 @@ else()
     message("Cannot create ${VERSION_FILE}")
 endif()
 
-idf_component_register(SRCS ${srcs} INCLUDE_DIRS ".")
+idf_component_register(
+    SRCS ${srcs}
+    INCLUDE_DIRS "."
+                 "mqtt"
+                 "utils"
+                 "wifi"
+)

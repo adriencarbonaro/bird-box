@@ -14,4 +14,16 @@ config BIRDBOX_WIFI_SSID
 config BIRDBOX_WIFI_PASSWORD
     string "WiFi Password"
 
+config BIRDBOX_MQTT_URI
+    string "MQTT Uri (format: mqtt://[USER]:[PASSWORD]@[HOST]:[PORT])"
+
+config BIRDBOX_MQTT_TOPIC
+    string "MQTT topic"
+
+config BIRDBOX_MQTT_MSG_PLAY
+    string "MQTT message to indicate play"
+
+config BIRDBOX_MQTT_MSG_PAUSE
+    string "MQTT message to indicate pause"
+
 endmenu
