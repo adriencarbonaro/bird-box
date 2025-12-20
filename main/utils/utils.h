@@ -6,4 +6,6 @@
 #define HI_BYTE(x) ((x) >> 8) & 0xff
 #define LO_BYTE(x) (x) & 0xff
 
+#define MIN(a, b) (a) < (b) ? (a) : (b)
+
 #endif /* UTILS_H_ */

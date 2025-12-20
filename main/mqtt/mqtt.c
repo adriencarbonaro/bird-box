@@ -12,7 +12,6 @@
 #include "wifi.h"
 
 typedef struct {
-    const char* msg;
     mqtt_event_listener_cb_t callback;
 } mqtt_event_listener_t;
 
@@ -20,17 +19,18 @@ static const char *TAG = "mqtt";
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static mqtt_event_listener_t* event_listeners[5] = {0};
 
-static inline bool is_birdbox_topic(esp_mqtt_event_handle_t event)
-{
-    return strncmp(event->topic,
-                   CONFIG_BIRDBOX_MQTT_TOPIC,
-                   event->topic_len) == 0;
-}
+static mqtt_task_data_t mqtt_task;
 
-static inline bool is_birdbox_message(esp_mqtt_event_handle_t event,
-                                      const char* msg)
+static inline bool is_configured_topic(esp_mqtt_event_handle_t event)
 {
-    return strncmp(event->data, msg, event->data_len) == 0;
+    for (uint16 i = 0; i < MAX_NB_TOPICS; i++)
+    {
+        if (strncmp(event->topic, mqtt_task.topics[i], event->topic_len) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void mqtt_event_handler(void* event_handler_arg,
@@ -44,10 +44,19 @@ static void mqtt_event_handler(void* event_handler_arg,
     {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "Connected to server");
-            ESP_LOGI(TAG, "Subscribing to topic %s", CONFIG_BIRDBOX_MQTT_TOPIC);
-            esp_mqtt_client_subscribe(event->client,
-                                      CONFIG_BIRDBOX_MQTT_TOPIC,
-                                      0);
+            mqtt_task.is_connected = true;
+
+            for (uint16 i = 0; i < MAX_NB_TOPICS; i++)
+            {
+                if (mqtt_task.topics[i] == NULL)
+                    continue;
+
+                ESP_LOGI(TAG, "Subscribing to topic %s", mqtt_task.topics[i]);
+                esp_mqtt_client_subscribe(event->client,
+                                          mqtt_task.topics[i],
+                                          0);
+            }
+
             break;
 
         case MQTT_EVENT_DISCONNECTED:
@@ -67,22 +76,22 @@ static void mqtt_event_handler(void* event_handler_arg,
             break;
 
         case MQTT_EVENT_DATA:
+            if (!is_configured_topic(event))
+                return;
+
             ESP_LOGI(TAG, "Received message on topic %.*s: %.*s",
                      event->topic_len, event->topic,
                      event->data_len, event->data);
 
-            if (is_birdbox_topic(event))
+            for (uint16 i = 0; i < ARRAY_DIM(event_listeners); i++)
             {
-                for (uint16 i = 0; i < ARRAY_DIM(event_listeners); i++)
+                mqtt_event_listener_t* event_listener = event_listeners[i];
+                if (event_listener != NULL)
                 {
-                    mqtt_event_listener_t* event_listener = event_listeners[i];
-                    if (event_listener != NULL)
-                    {
-                        if (is_birdbox_message(event, event_listener->msg))
-                        {
-                            event_listener->callback();
-                        }
-                    }
+                    event_listener->callback(event->topic,
+                                             event->topic_len,
+                                             event->data,
+                                             event->data_len);
                 }
             }
             break;
@@ -101,13 +110,25 @@ static void mqtt_event_handler(void* event_handler_arg,
     }
 }
 
-void mqtt_subscribe_event(const char* msg, mqtt_event_listener_cb_t callback)
+void mqtt_subscribe_topic(const char* topic)
+{
+    for (uint16 i = 0; i < MAX_NB_TOPICS; i++)
+    {
+        if (mqtt_task.topics[i] == NULL)
+        {
+            mqtt_task.topics[i] = topic;
+            return;
+        }
+    }
+}
+
+void mqtt_subscribe_listener(mqtt_event_listener_cb_t callback)
 {
     for (uint16 i = 0; i < ARRAY_DIM(event_listeners); i++)
     {
         if (event_listeners[i] == NULL)
         {
-            ESP_LOGI(TAG, "Adding client callback for msg %s", msg);
+            ESP_LOGI(TAG, "Adding mqtt msg client callback");
 
             event_listeners[i] = malloc(sizeof(mqtt_event_listener_t));
             if (event_listeners[i] == NULL)
@@ -116,7 +137,6 @@ void mqtt_subscribe_event(const char* msg, mqtt_event_listener_cb_t callback)
                 return;
             }
 
-            event_listeners[i]->msg = msg;
             event_listeners[i]->callback = callback;
 
             return;
@@ -124,7 +144,20 @@ void mqtt_subscribe_event(const char* msg, mqtt_event_listener_cb_t callback)
     }
 }
 
-void mqtt_init(EventGroupHandle_t wifi_event_group)
+void send_status(const char* status_str)
+{
+    if (mqtt_client == NULL)
+        return;
+
+    esp_mqtt_client_publish(mqtt_client, CONFIG_BIRDBOX_MQTT_TOPIC_STATE, status_str, 0, 0, 0);
+}
+
+void mqtt_init()
+{
+    memset(&mqtt_task, 0, sizeof(mqtt_task_data_t));
+}
+
+void mqtt_start(EventGroupHandle_t wifi_event_group)
 {
     esp_mqtt_client_config_t cfg = {
         .broker.address.uri = CONFIG_BIRDBOX_MQTT_URI,
@@ -133,7 +166,10 @@ void mqtt_init(EventGroupHandle_t wifi_event_group)
     };
 
     mqtt_client = esp_mqtt_client_init(&cfg);
-    esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, mqtt_client);
+    esp_mqtt_client_register_event(mqtt_client,
+                                   ESP_EVENT_ANY_ID,
+                                   mqtt_event_handler,
+                                   mqtt_client);
 
     EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
@@ -149,5 +185,4 @@ void mqtt_init(EventGroupHandle_t wifi_event_group)
     } else {
         ESP_LOGE(TAG, "Wifi unexpected event");
     }
-
 }
