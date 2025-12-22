@@ -84,6 +84,7 @@ typedef struct
 
 #define VERSION               "__VERSION__"
 #define BUILD_ID              "__BUILD_ID__"
+#define BUILD_ID_SHORT        "__BUILD_ID_SHORT__"
 
 #define MAJOR                 (__MAJOR__)
 #define MINOR                 (__MINOR__)
@@ -101,6 +102,7 @@ typedef struct
   core_content = core_template \
     .replace("__VERSION__", VERSION) \
     .replace("__BUILD_ID__", build) \
+    .replace("__BUILD_ID_SHORT__", build[:6]) \
     .replace("__MAJOR__",  MAJOR) \
     .replace("__MINOR__",  MINOR) \
     .replace("__PATCH__", CONFIG) \

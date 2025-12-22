@@ -7,11 +7,6 @@
 
 #define MAX_NB_TOPICS 4
 
-typedef struct {
-    const char* topics[MAX_NB_TOPICS];
-    bool is_connected;
-} mqtt_task_data_t;
-
 typedef void (*mqtt_event_listener_cb_t)(const char* topic,
                                          int topic_len,
                                          const char* msg,
@@ -23,6 +18,6 @@ void mqtt_subscribe_listener(mqtt_event_listener_cb_t callback);
 void mqtt_init(void);
 void mqtt_start(EventGroupHandle_t wifi_event_group);
 
-void send_status(const char* status_str);
+void send_state(const char* state_str);
 
 #endif /* MQTT_H_ */

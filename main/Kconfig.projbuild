@@ -26,6 +26,9 @@ config BIRDBOX_MQTT_URI
 config BIRDBOX_MQTT_TOPIC_SET
     string "MQTT set topic name"
 
+config BIRDBOX_MQTT_TOPIC_VERSION
+    string "MQTT version topic name"
+
 config BIRDBOX_MQTT_TOPIC_VOLUME
     string "MQTT volume topic name"
 

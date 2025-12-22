@@ -12,16 +12,26 @@
 #include "version.h"
 #include "wifi.h"
 
+/* Prototypes *****************************************************************/
+static void send_version(void);
+
+/* Structs - Enums ************************************************************/
 typedef struct {
     mqtt_event_listener_cb_t callback;
 } mqtt_event_listener_t;
 
-static const char *TAG = "mqtt";
+typedef struct {
+    const char* topics[MAX_NB_TOPICS];
+    bool is_connected;
+} mqtt_task_data_t;
+
+/* Global objects *************************************************************/
 static esp_mqtt_client_handle_t mqtt_client = NULL;
+static const char* TAG = "mqtt";
+static mqtt_task_data_t mqtt_task;
 static mqtt_event_listener_t* event_listeners[5] = {0};
 
-static mqtt_task_data_t mqtt_task;
-
+/* Static functions ***********************************************************/
 static inline bool is_configured_topic(esp_mqtt_event_handle_t event)
 {
     for (uint16 i = 0; i < MAX_NB_TOPICS; i++)
@@ -127,9 +137,10 @@ static void publish(const char* topic, const char* msg)
 
 static void send_version(void)
 {
-    publish(CONFIG_BIRDBOX_MQTT_TOPIC_VERSION, VERSION);
+    publish(MQTT_TOPIC_VERSION, VERSION " - " BUILD_ID_SHORT);
 }
 
+/* Functions ******************************************************************/
 void mqtt_subscribe_topic(const char* topic)
 {
     for (uint16 i = 0; i < MAX_NB_TOPICS; i++)
@@ -164,9 +175,9 @@ void mqtt_subscribe_listener(mqtt_event_listener_cb_t callback)
     }
 }
 
-void send_status(const char* status_str)
+void send_state(const char* state_str)
 {
-    publish(CONFIG_BIRDBOX_MQTT_TOPIC_STATE, status_str);
+    publish(MQTT_TOPIC_STATE, state_str);
 }
 
 void mqtt_init(void)
@@ -177,7 +188,7 @@ void mqtt_init(void)
 void mqtt_start(EventGroupHandle_t wifi_event_group)
 {
     esp_mqtt_client_config_t cfg = {
-        .broker.address.uri = CONFIG_BIRDBOX_MQTT_URI,
+        .broker.address.uri = MQTT_URI,
         .session.keepalive = 60,
         .network.reconnect_timeout_ms = 5000,
     };

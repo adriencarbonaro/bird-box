@@ -1,0 +1,5 @@
+[x] add dynamic amplify gain
+[ ] add version commit display (in logs)
+[ ] add lib for mqtt service
+  [ ] in the end, there should be a mqtt service handling all the mqtt core, and clients should subscribe to a specific set of messages with callbacks
+  [ ] the service can then be easily exported to other esp32 projects
