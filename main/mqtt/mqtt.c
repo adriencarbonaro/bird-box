@@ -44,6 +44,7 @@ static void mqtt_event_handler(void* event_handler_arg,
     switch ((esp_mqtt_event_id_t)event_id)
     {
         case MQTT_EVENT_CONNECTED:
+        {
             ESP_LOGI(TAG, "Connected to server");
             mqtt_task.is_connected = true;
 
@@ -61,6 +62,7 @@ static void mqtt_event_handler(void* event_handler_arg,
             send_version();
 
             break;
+        }
 
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "Disconnected from server");
@@ -79,6 +81,7 @@ static void mqtt_event_handler(void* event_handler_arg,
             break;
 
         case MQTT_EVENT_DATA:
+        {
             if (!is_configured_topic(event))
                 return;
 
@@ -98,6 +101,7 @@ static void mqtt_event_handler(void* event_handler_arg,
                 }
             }
             break;
+        }
 
         case MQTT_EVENT_BEFORE_CONNECT:
             ESP_LOGI(TAG, "Before connect...");
@@ -162,13 +166,10 @@ void mqtt_subscribe_listener(mqtt_event_listener_cb_t callback)
 
 void send_status(const char* status_str)
 {
-    if (mqtt_client == NULL)
-        return;
-
-    esp_mqtt_client_publish(mqtt_client, CONFIG_BIRDBOX_MQTT_TOPIC_STATE, status_str, 0, 0, 0);
+    publish(CONFIG_BIRDBOX_MQTT_TOPIC_STATE, status_str);
 }
 
-void mqtt_init()
+void mqtt_init(void)
 {
     memset(&mqtt_task, 0, sizeof(mqtt_task_data_t));
 }
