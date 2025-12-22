@@ -5,7 +5,7 @@
 build
 
 # auto-generated files
-main/version.c
+main/version.h
 
 # sdk
 managed_components

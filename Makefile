@@ -4,7 +4,7 @@
 # Paths
 PROJECT_DIR := $(CURDIR)
 BUILD_DIR := $(PROJECT_DIR)/build
-VERSION_FILE := $(PROJECT_DIR)/version.h
+VERSION_FILE := $(PROJECT_DIR)/main/version.h
 
 # Toolchain setup
 export PATH := $(IDF_PATH)/tools:$(PATH)
@@ -20,18 +20,14 @@ export BATCH_BUILD=1
 
 all: build
 
-# --- Versioning ---
-$(VERSION_FILE):
-	@echo "#define GIT_VERSION \"$(shell git describe --tags --always --dirty)\"" > $(VERSION_FILE)
-	@echo "Generated version.h with GIT_VERSION=$(shell git describe --tags --always --dirty)"
-
-version: $(VERSION_FILE)
+version:
+	python make_version.py
 
 # --- Build rules ---
 menuconfig:
 	idf.py menuconfig
 
-build: $(VERSION_FILE)
+build: version
 	idf.py build
 
 flash: build

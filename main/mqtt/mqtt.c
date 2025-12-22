@@ -9,6 +9,7 @@
 #include "freertos/portmacro.h"
 #include "utils/types.h"
 #include "utils.h"
+#include "version.h"
 #include "wifi.h"
 
 typedef struct {
@@ -56,6 +57,8 @@ static void mqtt_event_handler(void* event_handler_arg,
                                           mqtt_task.topics[i],
                                           0);
             }
+
+            send_version();
 
             break;
 
@@ -108,6 +111,19 @@ static void mqtt_event_handler(void* event_handler_arg,
             ESP_LOGI(TAG, "Other event id:%d", event->event_id);
             break;
     }
+}
+
+static void publish(const char* topic, const char* msg)
+{
+    if (mqtt_client == NULL)
+        return;
+
+    esp_mqtt_client_publish(mqtt_client, topic, msg, 0, 0, 0);
+}
+
+static void send_version(void)
+{
+    publish(CONFIG_BIRDBOX_MQTT_TOPIC_VERSION, VERSION);
 }
 
 void mqtt_subscribe_topic(const char* topic)
