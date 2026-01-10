@@ -132,7 +132,7 @@ static void stream_task(void *arg)
         }
 
         int16_t* buf16 = (int16_t*)buffer;
-        amplify_buffer(buf16, I2S_BUFFER_SIZE / 2, gain);
+        amplify_buffer(buf16, data_read / sizeof(int16_t), gain);
         i2s_write(buffer, data_read, NULL);
     }
 
