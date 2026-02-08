@@ -1,5 +1,7 @@
 set(srcs
     main.c
+    audio/audio.c
+    audio/audio.h
     play/play.c
     play/play.h
     stream/stream.c
@@ -15,6 +17,7 @@ set(srcs
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "."
+                 "audio"
                  "mqtt"
                  "play"
                  "stream"
