@@ -1,7 +1,6 @@
 #include "play.h"
 
 #include "config.h"
-#include "driver/i2s_std.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
@@ -64,11 +63,12 @@ static void play_task(void *arg)
 /* Functions ******************************************************************/
 void play_event(task_cmd_t* event)
 {
+    assert(play_cmd_queue);
     xQueueSend(play_cmd_queue, event, 0);
 }
 
 void play_init(void)
 {
     play_cmd_queue = xQueueCreate(8, sizeof(task_cmd_t));
-    xTaskCreate(play_task, "play_task", 4096, NULL, 5, NULL);
+    xTaskCreate(play_task, "play_task", 4096, NULL, tskIDLE_PRIORITY, NULL);
 }

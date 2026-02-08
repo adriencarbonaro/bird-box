@@ -1,5 +1,7 @@
 set(srcs
     main.c
+    audio/audio.c
+    audio/audio.h
     play/play.c
     play/play.h
     stream/stream.c
@@ -15,9 +17,17 @@ set(srcs
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "."
+                 "audio"
                  "mqtt"
                  "play"
                  "stream"
                  "utils"
                  "wifi"
+    REQUIRES esp_driver_i2s
+             esp_driver_gpio
+             esp_http_client
+             esp_ringbuf
+             esp_wifi
+             nvs_flash
+             mqtt
 )

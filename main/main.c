@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
+#include "audio.h"
 #include "config.h"
 #include "mqtt.h"
 #include "play.h"
@@ -126,6 +127,6 @@ void app_main(void)
     mqtt_start(s_wifi_event_group);
 
     /* Audio tasks */
-    stream_init();
+    audio_init();
     play_init();
 }

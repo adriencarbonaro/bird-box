@@ -1,10 +1,11 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
-#define I2S_NUM                         (0)
+#include "sdkconfig.h"
+#include "driver/i2s_std.h"
+
 #define SAMPLE_RATE                     (44100)
 
-#define I2S_BUFFER_SIZE                 (4096)
 #define I2S_BCLK                        (25)
 #define I2S_LRCLK                       (22)
 #define I2S_DOUT                        (26)
