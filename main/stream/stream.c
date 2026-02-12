@@ -1,3 +1,4 @@
+#include "config.h"
 #include "stream.h"
 #include "audio.h"
 #include <string.h>
@@ -8,9 +9,33 @@
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
 
+#include "mqtt.h"
+
 #include "esp_log.h"
 #include "esp_http_client.h"
 
+#define WAV_FMT_HEADER_OFFSET           (20)
+#define WAV_FMT_HEADER_SIZE             (16)
+#define WAV_FMT_HEADER_SKIP_SIZE        (WAV_FMT_HEADER_OFFSET + \
+                                         WAV_FMT_HEADER_SIZE)
+static const char* TAG = "stream";
+
+static TaskHandle_t stream_task_handle = NULL;
+extern RingbufHandle_t audio_rb;
+static uint8_t buffer[I2S_WRITE_CHUNK];
+static volatile float gain = AMPLIFY_GAIN;
+static volatile bool stop_playback = false;
+
+static void amplify_buffer(int16_t *data, size_t len, float gain)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        int32_t sample = (int32_t)(data[i] * gain);
+        if (sample > INT16_MAX) sample = INT16_MAX;
+        else if (sample < INT16_MIN) sample = INT16_MIN;
+        data[i] = (int16_t)sample;
+    }
+}
 
 static void stream_task(void *arg)
 {
@@ -65,6 +90,7 @@ static void stream_task(void *arg)
 
         int16_t* buf16 = (int16_t*)buffer;
         amplify_buffer(buf16, data_read / sizeof(int16_t), gain);
+        ESP_LOGI(TAG, "filling RB: %u", data_read);
         xRingbufferSend(audio_rb, buffer, data_read, portMAX_DELAY);
     }
 
@@ -79,4 +105,26 @@ end:
 
     stream_task_handle = NULL;
     vTaskDelete(NULL);
+}
+
+void stream_gain(float new_gain)
+{
+    gain = new_gain;
+}
+
+void stream_stop(void)
+{
+    stop_playback = true;
+}
+
+void stream_start(void)
+{
+    stop_playback = false;
+    xTaskCreatePinnedToCore(stream_task,
+                            "stream_task",
+                            8192,
+                            NULL,
+                            2,
+                            &stream_task_handle,
+                            1);
 }
