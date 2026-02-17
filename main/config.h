@@ -11,7 +11,7 @@
 #define I2S_DOUT                        (26)
 
 #define AMPLIFY_GAIN                    CONFIG_BIRDBOX_AMPLIFY_GAIN
-#define WAV_SERVER_URL                  CONFIG_BIRDBOX_WAV_SERVER_URL
+#define MP3_SERVER_URL                  CONFIG_BIRDBOX_MP3_SERVER_URL
 
 #define MQTT_URI                        CONFIG_BIRDBOX_MQTT_URI
 

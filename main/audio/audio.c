@@ -7,15 +7,42 @@
 #include "driver/i2s_std.h"
 #include <string.h>
 
-/* ===== Helpers ===== */
-#ifndef MIN
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-
 static const char* TAG = "audio";
 
-RingbufHandle_t audio_rb = NULL;
 static i2s_chan_handle_t tx_chan = NULL;
+static volatile float volume = AMPLIFY_GAIN;
+const uint8_t silence[I2S_WRITE_CHUNK] = {0};
+
+extern RingbufHandle_t pcm_rb;
+
+static EventGroupHandle_t audio_event_group = NULL;
+
+static void amplify_buffer(int16_t *data, size_t len, float gain)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        int32_t sample = (int32_t)(data[i] * gain);
+        if (sample > INT16_MAX) sample = INT16_MAX;
+        else if (sample < INT16_MIN) sample = INT16_MIN;
+        data[i] = (int16_t)sample;
+    }
+}
+
+static void i2s_start(void)
+{
+    if (i2s_channel_enable(tx_chan))
+    {
+        ESP_LOGI(TAG, "i2s channel enable fail");
+    }
+}
+
+static void i2s_stop(void)
+{
+    if (i2s_channel_disable(tx_chan))
+    {
+        ESP_LOGI(TAG, "i2s channel disable fail");
+    }
+}
 
 static void i2s_write(const uint8_t* data, const uint16_t data_len, size_t* written)
 {
@@ -48,58 +75,108 @@ static void i2s_init(void)
         },
     };
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
-    ESP_ERROR_CHECK(i2s_channel_enable(tx_chan));
+    // ESP_ERROR_CHECK(i2s_channel_enable(tx_chan));
+}
+
+void flush_ringbuffer(RingbufHandle_t rb)
+{
+    if (rb == NULL) return;
+
+    size_t item_size;
+    void *item;
+    while ((item = xRingbufferReceive(rb, &item_size, 0)) != NULL)
+    {
+        vRingbufferReturnItem(rb, item);
+    }
+}
+
+void set_volume(float new_volume)
+{
+    volume = new_volume;
+}
+
+void audio_start(void)
+{
+    i2s_start();
+    xEventGroupSetBits(audio_event_group, 1);
+}
+
+void audio_stop(void)
+{
+    xEventGroupSetBits(audio_event_group, 2);
 }
 
 void audio_task(void *arg)
 {
-    size_t bytes_written;
-    uint8_t out[I2S_WRITE_CHUNK];
-
-    /* -------- Prebuffer -------- */
-    size_t max_ring_buffer_size = xRingbufferGetMaxItemSize(audio_rb);
-    while (xRingbufferGetCurFreeSize(audio_rb) >
-           (max_ring_buffer_size - PREBUFFER_BYTES))
-    {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    TickType_t last_wake = xTaskGetTickCount();
-
-    /* -------- Playback loop -------- */
     while (1)
     {
-        size_t copied = 0;
+        /* Wait for start command */
+        xEventGroupWaitBits(audio_event_group, 1, pdTRUE, pdFALSE, portMAX_DELAY);
 
-        while (copied < I2S_WRITE_CHUNK)
+        /* Clear stop bit */
+        xEventGroupClearBits(audio_event_group, 2);
+
+        size_t bytes_written;
+        uint8_t out[I2S_WRITE_CHUNK];
+
+        /* Prebuffer */
+        // does not work
+        // size_t max_ring_buffer_size = xRingbufferGetMaxItemSize(pcm_rb);
+        // while (xRingbufferGetCurFreeSize(pcm_rb) >
+        //     (max_ring_buffer_size - PCM_RINGBUF_SIZEBYTES))
+        // {
+        //     vTaskDelay(pdMS_TO_TICKS(10));
+        // }
+
+        while (1)
         {
-            size_t item_size = 0;
+            size_t copied = 0;
 
-            uint8_t *data = (uint8_t *) xRingbufferReceiveUpTo(
-                audio_rb,
-                &item_size,
-                0,
-                I2S_WRITE_CHUNK - copied
-            );
+            while (copied < I2S_WRITE_CHUNK)
+            {
+                if (xEventGroupGetBits(audio_event_group) & 2)
+                    break;
 
-            if (!data || item_size == 0)
+                size_t bytes_available = 0;
+
+                uint8_t* data = (uint8_t*)xRingbufferReceiveUpTo(
+                    pcm_rb,
+                    &bytes_available,
+                    0,
+                    I2S_WRITE_CHUNK - copied
+                );
+
+                if (!data || bytes_available == 0)
+                    break;
+
+                /* Fill temporary buffer */
+                memcpy(out + copied, data, bytes_available);
+                copied += bytes_available;
+
+                vRingbufferReturnItem(pcm_rb, data);
+            }
+
+            /* Fill remaining space with silence */
+            if (copied < I2S_WRITE_CHUNK)
+                memset(out + copied, 0, I2S_WRITE_CHUNK - copied);
+
+            /* Apply volume */
+            int16_t* sample_buffer = (int16_t*)out;
+            amplify_buffer(sample_buffer, I2S_WRITE_CHUNK / sizeof(int16_t), volume);
+
+            uint8_t* pcm_out = out;
+            if (xEventGroupGetBits(audio_event_group) & 2)
+            {
+                pcm_out = silence;
                 break;
+            }
 
-            /* Fill temporary buffer */
-            memcpy(out + copied, data, item_size);
-            copied += item_size;
-
-            vRingbufferReturnItem(audio_rb, data);
+            i2s_write(pcm_out, I2S_WRITE_CHUNK, &bytes_written);
         }
 
-        /* Fill remaining space with silence */
-        if (copied < I2S_WRITE_CHUNK)
-            memset(out + copied, 0, I2S_WRITE_CHUNK - copied);
-
-        i2s_write(out, I2S_WRITE_CHUNK, &bytes_written);
-
-        //vTaskDelayUntil(&last_wake,
-        //                pdMS_TO_TICKS(AUDIO_PERIOD_MS));
+        i2s_stop();
+        ESP_LOGI(TAG, "flushing pcm");
+        flush_ringbuffer(pcm_rb);
     }
 }
 
@@ -107,14 +184,13 @@ void audio_init(void)
 {
     i2s_init();
 
-    audio_rb = xRingbufferCreate(RINGBUF_SIZE_BYTES, RINGBUF_TYPE_BYTEBUF);
-    assert(audio_rb != NULL);
+    audio_event_group = xEventGroupCreate();
 
     xTaskCreatePinnedToCore(audio_task,
                             "audio_task",
-                            4096,
+                            8192,
                             NULL,
-                            3,
+                            4,
                             NULL,
                             0);
 }
