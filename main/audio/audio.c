@@ -19,7 +19,7 @@ static i2s_chan_handle_t tx_chan = NULL;
 
 static void i2s_write(const uint8_t* data, const uint16_t data_len, size_t* written)
 {
-    if (i2s_channel_write(tx_chan, data, data_len, written, 1000))
+    if (i2s_channel_write(tx_chan, data, data_len, written, portMAX_DELAY))
     {
         ESP_LOGI(TAG, "Write Task: i2s write failed");
     }
@@ -67,43 +67,39 @@ void audio_task(void *arg)
     TickType_t last_wake = xTaskGetTickCount();
 
     /* -------- Playback loop -------- */
-    while (1) {
-        /* How much audio is currently buffered */
-        size_t fill =
-            max_ring_buffer_size - xRingbufferGetCurFreeSize(audio_rb);
-
-        size_t to_read = MIN(fill, I2S_WRITE_CHUNK);
-        ESP_LOGI(TAG, "free=%u fill=%u, to_read=%u", xRingbufferGetCurFreeSize(audio_rb), fill, to_read);
+    while (1)
+    {
         size_t copied = 0;
 
-        if (to_read > 0) {
+        while (copied < I2S_WRITE_CHUNK)
+        {
             size_t item_size = 0;
 
             uint8_t *data = (uint8_t *) xRingbufferReceiveUpTo(
                 audio_rb,
                 &item_size,
-                0,          // non-blocking
-                to_read
+                0,
+                I2S_WRITE_CHUNK - copied
             );
 
-            if (data && item_size > 0) {
-                memcpy(out, data, item_size);
-                copied = item_size;
-                vRingbufferReturnItem(audio_rb, data);
-            }
+            if (!data || item_size == 0)
+                break;
+
+            /* Fill temporary buffer */
+            memcpy(out + copied, data, item_size);
+            copied += item_size;
+
+            vRingbufferReturnItem(audio_rb, data);
         }
 
-        /* Pad with silence if needed */
-        if (copied < I2S_WRITE_CHUNK) {
-            ESP_LOGI(TAG, "filling with silence");
+        /* Fill remaining space with silence */
+        if (copied < I2S_WRITE_CHUNK)
             memset(out + copied, 0, I2S_WRITE_CHUNK - copied);
-        }
 
-        /* Always feed I2S a fixed-size buffer */
         i2s_write(out, I2S_WRITE_CHUNK, &bytes_written);
 
-        vTaskDelayUntil(&last_wake,
-                        pdMS_TO_TICKS(AUDIO_PERIOD_MS));
+        //vTaskDelayUntil(&last_wake,
+        //                pdMS_TO_TICKS(AUDIO_PERIOD_MS));
     }
 }
 

@@ -90,7 +90,6 @@ static void stream_task(void *arg)
 
         int16_t* buf16 = (int16_t*)buffer;
         amplify_buffer(buf16, data_read / sizeof(int16_t), gain);
-        ESP_LOGI(TAG, "filling RB: %u", data_read);
         xRingbufferSend(audio_rb, buffer, data_read, portMAX_DELAY);
     }
 
