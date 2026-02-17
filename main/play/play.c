@@ -1,5 +1,6 @@
 #include "play.h"
 
+#include "audio.h"
 #include "config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -49,7 +50,7 @@ static void play_task(void *arg)
 
             case CMD_VOLUME:
             {
-                stream_gain(cmd.volume);
+                set_volume(cmd.volume);
                 ESP_LOGI(TAG, "Volume changed: %.2f", cmd.volume);
                 break;
             }

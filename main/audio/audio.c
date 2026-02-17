@@ -14,8 +14,26 @@
 
 static const char* TAG = "audio";
 
-RingbufHandle_t audio_rb = NULL;
 static i2s_chan_handle_t tx_chan = NULL;
+static volatile float volume = AMPLIFY_GAIN;
+
+extern RingbufHandle_t pcm_rb;
+
+void set_volume(float new_volume)
+{
+    volume = new_volume;
+}
+
+static void amplify_buffer(int16_t *data, size_t len, float gain)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        int32_t sample = (int32_t)(data[i] * gain);
+        if (sample > INT16_MAX) sample = INT16_MAX;
+        else if (sample < INT16_MIN) sample = INT16_MIN;
+        data[i] = (int16_t)sample;
+    }
+}
 
 static void i2s_write(const uint8_t* data, const uint16_t data_len, size_t* written)
 {
@@ -56,50 +74,40 @@ void audio_task(void *arg)
     size_t bytes_written;
     uint8_t out[I2S_WRITE_CHUNK];
 
-    /* -------- Prebuffer -------- */
-    size_t max_ring_buffer_size = xRingbufferGetMaxItemSize(audio_rb);
-    while (xRingbufferGetCurFreeSize(audio_rb) >
-           (max_ring_buffer_size - PREBUFFER_BYTES))
-    {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    TickType_t last_wake = xTaskGetTickCount();
-
-    /* -------- Playback loop -------- */
     while (1)
     {
         size_t copied = 0;
 
         while (copied < I2S_WRITE_CHUNK)
         {
-            size_t item_size = 0;
+            size_t bytes_available = 0;
 
             uint8_t *data = (uint8_t *) xRingbufferReceiveUpTo(
-                audio_rb,
-                &item_size,
+                pcm_rb,
+                &bytes_available,
                 0,
                 I2S_WRITE_CHUNK - copied
             );
 
-            if (!data || item_size == 0)
+            if (!data || bytes_available == 0)
                 break;
 
             /* Fill temporary buffer */
-            memcpy(out + copied, data, item_size);
-            copied += item_size;
+            memcpy(out + copied, data, bytes_available);
+            copied += bytes_available;
 
-            vRingbufferReturnItem(audio_rb, data);
+            vRingbufferReturnItem(pcm_rb, data);
         }
 
         /* Fill remaining space with silence */
         if (copied < I2S_WRITE_CHUNK)
             memset(out + copied, 0, I2S_WRITE_CHUNK - copied);
 
-        i2s_write(out, I2S_WRITE_CHUNK, &bytes_written);
+        /* Apply volume */
+        int16_t* sample_buffer = (int16_t*)out;
+        amplify_buffer(sample_buffer, I2S_WRITE_CHUNK / sizeof(int16_t), volume);
 
-        //vTaskDelayUntil(&last_wake,
-        //                pdMS_TO_TICKS(AUDIO_PERIOD_MS));
+        i2s_write(out, I2S_WRITE_CHUNK, &bytes_written);
     }
 }
 
@@ -107,12 +115,9 @@ void audio_init(void)
 {
     i2s_init();
 
-    audio_rb = xRingbufferCreate(RINGBUF_SIZE_BYTES, RINGBUF_TYPE_BYTEBUF);
-    assert(audio_rb != NULL);
-
     xTaskCreatePinnedToCore(audio_task,
                             "audio_task",
-                            4096,
+                            8192,
                             NULL,
                             3,
                             NULL,

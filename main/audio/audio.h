@@ -9,15 +9,17 @@
 
 /* ===== Buffering ===== */
 #define PREBUFFER_MS          500
-#define PREBUFFER_BYTES       (AUDIO_BYTES_PER_SEC * PREBUFFER_MS / 1000)
+#define PCM_RINGBUF_SIZEBYTES (AUDIO_BYTES_PER_SEC * PREBUFFER_MS / 1000)
 
-#define RINGBUF_SIZE_BYTES    (PREBUFFER_BYTES * 2)
+#define MP3_RB_SIZE           (32 * 1024)
 
 /* ===== Audio timing ===== */
-#define AUDIO_PERIOD_MS       10
-#define I2S_WRITE_CHUNK       (AUDIO_BYTES_PER_SEC * AUDIO_PERIOD_MS / 1000)
+#define I2S_WRITE_CHUNK       1024
+
 
 void audio_init(void);
 void audio_task(void *arg);
+
+void set_volume(float volume);
 
 #endif /* AUDIO_H */

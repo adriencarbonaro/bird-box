@@ -7,7 +7,7 @@ config BIRDBOX_AMPLIFY_GAIN
 
 # Audio server configuration ---------------------------------------------------
 
-config BIRDBOX_WAV_SERVER_URL
+config BIRDBOX_MP3_SERVER_URL
     string "Audio Server URL (format: http://[IP]:[PORT])"
 
 # Wifi configuration -----------------------------------------------------------
