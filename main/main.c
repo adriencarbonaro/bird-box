@@ -137,6 +137,7 @@ void app_main(void)
     mqtt_start(s_wifi_event_group);
 
     /* Audio tasks */
+    stream_init();
     audio_init();
     mp3_decode_init();
     play_init();

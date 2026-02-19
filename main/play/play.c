@@ -7,6 +7,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/task.h"
 #include "types.h"
+#include "mp3.h"
 #include "mqtt.h"
 #include "stream.h"
 
@@ -36,7 +37,9 @@ static void play_task(void *arg)
         {
             case CMD_PLAY:
             {
+                mp3_decode_start();
                 stream_start();
+                audio_start();
                 update_state(STATE_PLAYING);
                 break;
             }
@@ -44,6 +47,8 @@ static void play_task(void *arg)
             case CMD_PAUSE:
             {
                 stream_stop();
+                audio_stop();
+                mp3_decode_stop();
                 update_state(STATE_IDLE);
                 break;
             }

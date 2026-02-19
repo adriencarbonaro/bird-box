@@ -4,14 +4,17 @@
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
 
+#include "audio.h"
 #include "config.h"
 #include "mqtt.h"
+#include "mp3.h"
 
 extern RingbufHandle_t mp3_rb;
 #define HTTP_READ_CHUNK 1024
 
 static const char* TAG = "stream";
 static volatile bool stop_playback = false;
+static EventGroupHandle_t stream_event_group = NULL;
 
 static void stream_task(void *arg)
 {
@@ -26,62 +29,75 @@ static void stream_task(void *arg)
     if (!client)
     {
         ESP_LOGE(TAG, "Failed to init HTTP client");
-        vTaskDelete(NULL);
         return;
     }
-
-    if (esp_http_client_open(client, 0) != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to open HTTP connection");
-        esp_http_client_cleanup(client);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG, "Streaming MP3 from %s", config.url);
-
-    esp_http_client_fetch_headers(client);
 
     while (1)
     {
-        if (stop_playback)
+
+        xEventGroupWaitBits(stream_event_group,
+            1,
+            pdTRUE,
+            pdFALSE,
+            portMAX_DELAY);
+
+        if (esp_http_client_open(client, 0) != ESP_OK)
         {
-            ESP_LOGI(TAG, "Playback stopped");
-            break;
+            ESP_LOGE(TAG, "Failed to open HTTP connection");
+            esp_http_client_cleanup(client);
+            return;
         }
 
-        int bytes_read = esp_http_client_read(client, (char*)buffer, HTTP_READ_CHUNK);
+        ESP_LOGI(TAG, "Streaming MP3 from %s", config.url);
 
-        if (bytes_read < 0)
+        esp_http_client_fetch_headers(client);
+
+        while (1)
         {
-            ESP_LOGE(TAG, "HTTP read error");
-            break;
-        }
-        else if (bytes_read == 0)
-        {
-            ESP_LOGI(TAG, "Stream ended");
-            break;
+            if (xEventGroupGetBits(stream_event_group) & 2)
+            {
+                ESP_LOGI(TAG, "Playback stopped");
+                break;
+            }
+
+            int bytes_read = esp_http_client_read(client, (char*)buffer, HTTP_READ_CHUNK);
+
+            if (bytes_read < 0)
+            {
+                ESP_LOGE(TAG, "HTTP read error");
+                break;
+            }
+            else if (bytes_read == 0)
+            {
+                ESP_LOGI(TAG, "Stream ended");
+                break;
+            }
+
+            xRingbufferSend(mp3_rb, buffer, bytes_read, portMAX_DELAY);
         }
 
-        xRingbufferSend(mp3_rb, buffer, bytes_read, portMAX_DELAY);
+        /* @todo: Should notify play task rather than sending mqtt message direclty*/
+        send_state("idle");
+        ESP_LOGI(TAG, "Closing HTTP client");
+        esp_http_client_close(client);
+        mp3_decode_stop();
+        audio_stop();
     }
-
-    /* @todo: Should notify play task rather than sending mqtt message direclty*/
-    send_state("idle");
-    ESP_LOGI(TAG, "Closing HTTP client");
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-
-    vTaskDelete(NULL);
 }
 
 void stream_stop(void)
 {
-    stop_playback = true;
+    xEventGroupSetBits(stream_event_group, 2);
 }
 
 void stream_start(void)
 {
-    stop_playback = false;
-    xTaskCreatePinnedToCore(stream_task, "stream_task", 8192, NULL, 2, NULL, 1);
+    xEventGroupClearBits(stream_event_group, 2);
+    xEventGroupSetBits(stream_event_group, 1);
+}
+
+void stream_init(void)
+{
+    stream_event_group = xEventGroupCreate();
+    xTaskCreatePinnedToCore(stream_task, "stream_task", 8192, NULL, 3, NULL, 1);
 }
