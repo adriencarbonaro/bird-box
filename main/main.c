@@ -120,13 +120,16 @@ static void on_volume(const char* msg, uint16 msg_len, task_cmd_t* event)
     ESP_LOGI(TAG, "Parsed volume: %.2f", event->volume);
 }
 
-void app_main(void)
+void init_pipeline(void)
 {
-    mp3_rb = xRingbufferCreate(MP3_RB_SIZE, RINGBUF_TYPE_BYTEBUF);
-    pcm_rb = xRingbufferCreate(PCM_RINGBUF_SIZEBYTES, RINGBUF_TYPE_BYTEBUF);
+    mp3_rb = xRingbufferCreate(MP3_RING_SIZE, RINGBUF_TYPE_BYTEBUF);
+    pcm_rb = xRingbufferCreate(PCM_RING_SIZE, RINGBUF_TYPE_BYTEBUF);
     assert(mp3_rb);
     assert(pcm_rb);
+}
 
+void app_main(void)
+{
     /* Wifi driver */
     EventGroupHandle_t s_wifi_event_group = xEventGroupCreate();
     wifi_init(s_wifi_event_group);
@@ -137,6 +140,7 @@ void app_main(void)
     mqtt_start(s_wifi_event_group);
 
     /* Audio tasks */
+    init_pipeline();
     stream_init();
     audio_init();
     mp3_decode_init();

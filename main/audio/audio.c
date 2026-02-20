@@ -11,11 +11,13 @@ static const char* TAG = "audio";
 
 static i2s_chan_handle_t tx_chan = NULL;
 static volatile float volume = AMPLIFY_GAIN;
-const uint8_t silence[I2S_WRITE_CHUNK] = {0};
+static const uint8_t silence[I2S_WRITE_CHUNK] = {0};
+static uint8_t out[I2S_WRITE_CHUNK] = {0};
+
+TaskHandle_t audio_task_handle = NULL;
+extern TaskHandle_t supervisor_task_handle;
 
 extern RingbufHandle_t pcm_rb;
-
-static EventGroupHandle_t audio_event_group = NULL;
 
 static void amplify_buffer(int16_t *data, size_t len, float gain)
 {
@@ -25,22 +27,6 @@ static void amplify_buffer(int16_t *data, size_t len, float gain)
         if (sample > INT16_MAX) sample = INT16_MAX;
         else if (sample < INT16_MIN) sample = INT16_MIN;
         data[i] = (int16_t)sample;
-    }
-}
-
-static void i2s_start(void)
-{
-    if (i2s_channel_enable(tx_chan))
-    {
-        ESP_LOGI(TAG, "i2s channel enable fail");
-    }
-}
-
-static void i2s_stop(void)
-{
-    if (i2s_channel_disable(tx_chan))
-    {
-        ESP_LOGI(TAG, "i2s channel disable fail");
     }
 }
 
@@ -75,19 +61,7 @@ static void i2s_init(void)
         },
     };
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
-    // ESP_ERROR_CHECK(i2s_channel_enable(tx_chan));
-}
-
-void flush_ringbuffer(RingbufHandle_t rb)
-{
-    if (rb == NULL) return;
-
-    size_t item_size;
-    void *item;
-    while ((item = xRingbufferReceive(rb, &item_size, 0)) != NULL)
-    {
-        vRingbufferReturnItem(rb, item);
-    }
+    ESP_ERROR_CHECK(i2s_channel_enable(tx_chan));
 }
 
 void set_volume(float new_volume)
@@ -95,54 +69,71 @@ void set_volume(float new_volume)
     volume = new_volume;
 }
 
-void audio_start(void)
+void stop(void)
 {
-    i2s_start();
-    xEventGroupSetBits(audio_event_group, 1);
-}
+    size_t bytes_written = 0;
+    i2s_write(silence, I2S_WRITE_CHUNK, &bytes_written);
 
-void audio_stop(void)
-{
-    xEventGroupSetBits(audio_event_group, 2);
+    xTaskNotify(supervisor_task_handle, 1, eSetValueWithOverwrite);
 }
 
 void audio_task(void *arg)
 {
     while (1)
     {
-        /* Wait for start command */
-        xEventGroupWaitBits(audio_event_group, 1, pdTRUE, pdFALSE, portMAX_DELAY);
-
-        /* Clear stop bit */
-        xEventGroupClearBits(audio_event_group, 2);
+        /* Wait for start notification */
+        uint32_t cmd;
+        xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
+        if (cmd == 2)
+        {
+            ESP_LOGW(TAG, "audio task stopping before even start");
+            break;
+        }
+        else if (cmd == 1)
+        {
+            ESP_LOGI(TAG, "audio task start");
+        }
 
         size_t bytes_written;
-        uint8_t out[I2S_WRITE_CHUNK];
+
+        i2s_write(silence, I2S_WRITE_CHUNK, &bytes_written);
 
         /* Prebuffer */
-        // does not work
-        // size_t max_ring_buffer_size = xRingbufferGetMaxItemSize(pcm_rb);
-        // while (xRingbufferGetCurFreeSize(pcm_rb) >
-        //     (max_ring_buffer_size - PCM_RINGBUF_SIZEBYTES))
-        // {
-        //     vTaskDelay(pdMS_TO_TICKS(10));
-        // }
+        while (1)
+        {
+            size_t free = xRingbufferGetCurFreeSize(pcm_rb);
+            size_t used = PCM_RING_SIZE - free;
+
+            ESP_LOGI(TAG, "Prebuffering ... (%u bytes filled)", used);
+
+            if (used >= PCM_RING_SIZE)
+                break;
+
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
 
         while (1)
         {
+            if (xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, 0) == pdTRUE)
+            {
+                if (cmd == 2)
+                {
+                    ESP_LOGW(TAG, "audio task stopping before even start");
+                    stop();
+                    break;
+                }
+            }
+
             size_t copied = 0;
 
             while (copied < I2S_WRITE_CHUNK)
             {
-                if (xEventGroupGetBits(audio_event_group) & 2)
-                    break;
-
                 size_t bytes_available = 0;
 
                 uint8_t* data = (uint8_t*)xRingbufferReceiveUpTo(
                     pcm_rb,
                     &bytes_available,
-                    0,
+                    pdMS_TO_TICKS(50),
                     I2S_WRITE_CHUNK - copied
                 );
 
@@ -164,19 +155,18 @@ void audio_task(void *arg)
             int16_t* sample_buffer = (int16_t*)out;
             amplify_buffer(sample_buffer, I2S_WRITE_CHUNK / sizeof(int16_t), volume);
 
-            uint8_t* pcm_out = out;
-            if (xEventGroupGetBits(audio_event_group) & 2)
+            i2s_write(out, I2S_WRITE_CHUNK, &bytes_written);
+
+            if (xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, 0) == pdTRUE)
             {
-                pcm_out = silence;
-                break;
+                if (cmd == 2)
+                {
+                    ESP_LOGI(TAG, "audio task stopped by supervisor");
+                    stop();
+                    break;
+                }
             }
-
-            i2s_write(pcm_out, I2S_WRITE_CHUNK, &bytes_written);
         }
-
-        i2s_stop();
-        ESP_LOGI(TAG, "flushing pcm");
-        flush_ringbuffer(pcm_rb);
     }
 }
 
@@ -184,13 +174,11 @@ void audio_init(void)
 {
     i2s_init();
 
-    audio_event_group = xEventGroupCreate();
-
     xTaskCreatePinnedToCore(audio_task,
                             "audio_task",
-                            8192,
+                            16384,
                             NULL,
                             4,
-                            NULL,
+                            &audio_task_handle,
                             0);
 }
