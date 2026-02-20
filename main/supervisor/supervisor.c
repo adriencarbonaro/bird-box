@@ -1,4 +1,4 @@
-#include "play.h"
+#include "supervisor.h"
 
 #include "audio.h"
 #include "config.h"
@@ -12,9 +12,9 @@
 #include "stream.h"
 
 /* Global objects *************************************************************/
-static QueueHandle_t play_cmd_queue = NULL;
+static QueueHandle_t supervisor_cmd_queue = NULL;
 
-static const char* TAG = "play_task";
+static const char* TAG = "supervisor_task";
 
 static const char* state_str_list[] = {
     [STATE_IDLE] = "idle",
@@ -27,11 +27,11 @@ static void update_state(state_t state)
     send_state(state_str_list[state]);
 }
 
-static void play_task(void *arg)
+static void supervisor_task(void *arg)
 {
     task_cmd_t cmd;
 
-    while (xQueueReceive(play_cmd_queue, &cmd, portMAX_DELAY) == pdTRUE)
+    while (xQueueReceive(supervisor_cmd_queue, &cmd, portMAX_DELAY) == pdTRUE)
     {
         switch (cmd.type)
         {
@@ -67,14 +67,14 @@ static void play_task(void *arg)
 }
 
 /* Functions ******************************************************************/
-void play_event(task_cmd_t* event)
+void supervisor_event(task_cmd_t* event)
 {
-    assert(play_cmd_queue);
-    xQueueSend(play_cmd_queue, event, 0);
+    assert(supervisor_cmd_queue);
+    xQueueSend(supervisor_cmd_queue, event, 0);
 }
 
-void play_init(void)
+void supervisor_init(void)
 {
-    play_cmd_queue = xQueueCreate(8, sizeof(task_cmd_t));
-    xTaskCreate(play_task, "play_task", 4096, NULL, tskIDLE_PRIORITY, NULL);
+    supervisor_cmd_queue = xQueueCreate(8, sizeof(task_cmd_t));
+    xTaskCreate(supervisor_task, "supervisor_task", 4096, NULL, tskIDLE_PRIORITY, NULL);
 }

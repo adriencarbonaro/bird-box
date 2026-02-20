@@ -2,10 +2,10 @@ set(srcs
     main.c
     audio/audio.c
     audio/audio.h
-    play/play.c
-    play/play.h
     stream/stream.c
     stream/stream.h
+    supervisor/supervisor.c
+    supervisor/supervisor.h
     mp3/mp3.c
     mp3/mp3.h
     mqtt/mqtt.c
@@ -22,8 +22,8 @@ idf_component_register(
                  "audio"
                  "mp3"
                  "mqtt"
-                 "play"
                  "stream"
+                 "supervisor"
                  "utils"
                  "wifi"
     REQUIRES esp_driver_i2s

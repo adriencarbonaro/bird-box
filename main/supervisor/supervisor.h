@@ -1,5 +1,5 @@
-#ifndef PLAY_H_
-#define PLAY_H_
+#ifndef SUPERVISOR_H_
+#define SUPERVISOR_H_
 
 /* Structs - Enums ************************************************************/
 typedef enum {
@@ -19,7 +19,7 @@ typedef struct {
 } task_cmd_t;
 
 /* Prototypes *****************************************************************/
-void play_init(void);
-void play_event(task_cmd_t* event);
+void supervisor_init(void);
+void supervisor_event(task_cmd_t* event);
 
-#endif /* PLAY_H_ */
+#endif /* SUPERVISOR_H_ */

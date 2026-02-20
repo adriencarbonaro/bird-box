@@ -17,8 +17,8 @@
 #include "config.h"
 #include "mp3.h"
 #include "mqtt.h"
-#include "play.h"
 #include "stream.h"
+#include "supervisor.h"
 #include "utils.h"
 #include "utils/types.h"
 #include "wifi.h"
@@ -76,7 +76,7 @@ static void on_msg(const char* topic,
         }
     }
 
-    play_event(&event);
+    supervisor_event(&event);
 }
 
 static void configure_subscriptions(void)
@@ -140,5 +140,5 @@ void app_main(void)
     stream_init();
     audio_init();
     mp3_decode_init();
-    play_init();
+    supervisor_init();
 }
