@@ -1,7 +1,14 @@
-#ifndef PLAY_H_
-#define PLAY_H_
+#ifndef SUPERVISOR_H_
+#define SUPERVISOR_H_
+
+#include "esp_bit_defs.h"
 
 /* Structs - Enums ************************************************************/
+typedef enum {
+    STOP_REASON_STREAM_OPEN_FAILED,
+    STOP_REASON_AUDIO_ENDED,
+} stop_reason_t;
+
 typedef enum {
     CMD_PLAY,
     CMD_PAUSE,
@@ -19,7 +26,7 @@ typedef struct {
 } task_cmd_t;
 
 /* Prototypes *****************************************************************/
-void play_init(void);
-void play_event(task_cmd_t* event);
+void supervisor_init(void);
+void supervisor_event(task_cmd_t* event);
 
-#endif /* PLAY_H_ */
+#endif /* SUPERVISOR_H_ */

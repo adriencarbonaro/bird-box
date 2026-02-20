@@ -17,14 +17,11 @@
 #include "config.h"
 #include "mp3.h"
 #include "mqtt.h"
-#include "play.h"
 #include "stream.h"
+#include "supervisor.h"
 #include "utils.h"
 #include "utils/types.h"
 #include "wifi.h"
-
-RingbufHandle_t mp3_rb = NULL;
-RingbufHandle_t pcm_rb = NULL;
 
 /* Prototypes *****************************************************************/
 
@@ -76,7 +73,7 @@ static void on_msg(const char* topic,
         }
     }
 
-    play_event(&event);
+    supervisor_event(&event);
 }
 
 static void configure_subscriptions(void)
@@ -122,11 +119,6 @@ static void on_volume(const char* msg, uint16 msg_len, task_cmd_t* event)
 
 void app_main(void)
 {
-    mp3_rb = xRingbufferCreate(MP3_RB_SIZE, RINGBUF_TYPE_BYTEBUF);
-    pcm_rb = xRingbufferCreate(PCM_RINGBUF_SIZEBYTES, RINGBUF_TYPE_BYTEBUF);
-    assert(mp3_rb);
-    assert(pcm_rb);
-
     /* Wifi driver */
     EventGroupHandle_t s_wifi_event_group = xEventGroupCreate();
     wifi_init(s_wifi_event_group);
@@ -136,9 +128,5 @@ void app_main(void)
     configure_subscriptions();
     mqtt_start(s_wifi_event_group);
 
-    /* Audio tasks */
-    stream_init();
-    audio_init();
-    mp3_decode_init();
-    play_init();
+    supervisor_init();
 }
