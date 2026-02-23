@@ -32,9 +32,10 @@ static void amplify_buffer(int16_t *data, size_t len, float gain)
 
 static void i2s_write(const uint8_t* data, const uint16_t data_len, size_t* written)
 {
-    if (i2s_channel_write(tx_chan, data, data_len, written, portMAX_DELAY))
+    esp_err_t status = ESP_OK;
+    if ((status = i2s_channel_write(tx_chan, data, data_len, written, portMAX_DELAY)) != ESP_OK)
     {
-        ESP_LOGI(TAG, "Write Task: i2s write failed");
+        ESP_LOGI(TAG, "Write Task: i2s write failed with status: %u", status);
     }
 }
 
@@ -69,10 +70,20 @@ void set_volume(float new_volume)
     volume = new_volume;
 }
 
-void stop(void)
+static void stop(void)
 {
-    size_t bytes_written = 0;
-    i2s_write(silence, I2S_WRITE_CHUNK, &bytes_written);
+    // First push enough silence while still enabled
+    for (int i = 0; i < 6; i++)
+    {
+        size_t written;
+        i2s_channel_write(tx_chan, silence, 480, &written, portMAX_DELAY);
+    }
+
+    // Wait long enough for DMA to drain
+    vTaskDelay(pdMS_TO_TICKS(5));
+
+    // Now disable
+    i2s_channel_disable(tx_chan);
 
     xTaskNotify(supervisor_task_handle, 1, eSetValueWithOverwrite);
 }
@@ -82,6 +93,7 @@ void audio_task(void *arg)
     while (1)
     {
         /* Wait for start notification */
+        ESP_LOGI(TAG, "Waiting for start command");
         uint32_t cmd;
         xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
         if (cmd == 2)
@@ -92,11 +104,10 @@ void audio_task(void *arg)
         else if (cmd == 1)
         {
             ESP_LOGI(TAG, "audio task start");
+            i2s_channel_enable(tx_chan);
         }
 
         size_t bytes_written;
-
-        i2s_write(silence, I2S_WRITE_CHUNK, &bytes_written);
 
         /* Prebuffer */
         while (1)
@@ -106,8 +117,11 @@ void audio_task(void *arg)
 
             ESP_LOGI(TAG, "Prebuffering ... (%u bytes filled)", used);
 
-            if (used >= PCM_RING_SIZE)
+            if (used >= 43776)
+            {
+                ESP_LOGI(TAG, "Done prebuffering ... (%u bytes filled)", used);
                 break;
+            }
 
             vTaskDelay(pdMS_TO_TICKS(10));
         }
@@ -130,15 +144,28 @@ void audio_task(void *arg)
             {
                 size_t bytes_available = 0;
 
+                ESP_LOGW(TAG, "Trying to fetch %u", I2S_WRITE_CHUNK - copied);
+
                 uint8_t* data = (uint8_t*)xRingbufferReceiveUpTo(
                     pcm_rb,
                     &bytes_available,
-                    pdMS_TO_TICKS(50),
+                    pdMS_TO_TICKS(5),
                     I2S_WRITE_CHUNK - copied
                 );
 
-                if (!data || bytes_available == 0)
+                ESP_LOGW(TAG, "Fetched %u", bytes_available);
+
+                if (!data)
+                {
+                    ESP_LOGW(TAG, "No data (copied=%u)", copied);
                     break;
+                }
+
+                if (bytes_available == 0)
+                {
+                    ESP_LOGW(TAG, "No bytes avail");
+                    break;
+                }
 
                 /* Fill temporary buffer */
                 memcpy(out + copied, data, bytes_available);

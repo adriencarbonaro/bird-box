@@ -1,6 +1,9 @@
 #ifndef SUPERVISOR_H_
 #define SUPERVISOR_H_
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 /* Structs - Enums ************************************************************/
 typedef enum {
     CMD_PLAY,
@@ -19,7 +22,7 @@ typedef struct {
 } task_cmd_t;
 
 /* Prototypes *****************************************************************/
-void supervisor_init(void);
+void supervisor_init(EventGroupHandle_t stream_event_group);
 void supervisor_event(task_cmd_t* event);
 
 #endif /* SUPERVISOR_H_ */

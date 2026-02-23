@@ -140,9 +140,11 @@ void app_main(void)
     mqtt_start(s_wifi_event_group);
 
     /* Audio tasks */
+    EventGroupHandle_t stream_event_group = xEventGroupCreate();
+
     init_pipeline();
-    stream_init();
+    stream_init(stream_event_group);
     audio_init();
     mp3_decode_init();
-    supervisor_init();
+    supervisor_init(stream_event_group);
 }

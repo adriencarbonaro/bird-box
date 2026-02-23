@@ -21,7 +21,7 @@ extern TaskHandle_t supervisor_task_handle;
 
 static HMP3Decoder decoder = NULL;
 
-static const char* TAG = "mp3_decode_task";
+static const char* TAG = "mp3_task";
 
 static void stop(void)
 {
@@ -35,6 +35,7 @@ void mp3_decode_task(void *arg)
     while (1)
     {
         /* Wait for start notification */
+        ESP_LOGI(TAG, "Waiting for start command");
         uint32_t cmd;
         xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
         if (cmd == 2)
@@ -72,7 +73,7 @@ void mp3_decode_task(void *arg)
             {
                 if (cmd == 2)
                 {
-                    ESP_LOGI(TAG, "mp3 task stopped by supervisor");
+                    ESP_LOGI(TAG, "mp3 task stopped by supervisor (1)");
                     stop();
                     break;
                 }
@@ -85,10 +86,16 @@ void mp3_decode_task(void *arg)
                                     MP3_INPUT_CHUNK_SIZE);
 
             if (!new_data)
+            {
+                ESP_LOGW(TAG, "No data");
                 continue;
+            }
 
             if (!bytes_available)
+            {
+                ESP_LOGW(TAG, "No bytes avail");
                 break;
+            }
 
             uint8_t data[DATA_BUFFER_SIZE];
             memset(data, 0, DATA_BUFFER_SIZE);
@@ -130,16 +137,6 @@ void mp3_decode_task(void *arg)
                 int pcm_bytes = frameInfo.outputSamps * sizeof(int16_t);
 
                 xRingbufferSend(pcm_rb, pcm_out, pcm_bytes, pdMS_TO_TICKS(100));
-
-                if (xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, 0) == pdTRUE)
-                {
-                    if (cmd == 2)
-                    {
-                        ESP_LOGI(TAG, "mp3 task stopped by supervisor");
-                        stop();
-                        break;
-                    }
-                }
             }
 
             if (err != 0)
@@ -147,6 +144,16 @@ void mp3_decode_task(void *arg)
                 leftover_len = backup_len;
                 memset(leftover, 0, LEFTOVER_SIZE);
                 memcpy(leftover, backup, leftover_len);
+            }
+
+            if (xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, 0) == pdTRUE)
+            {
+                if (cmd == 2)
+                {
+                    ESP_LOGI(TAG, "mp3 task stopped by supervisor (2)");
+                    stop();
+                    break;
+                }
             }
         }
     }
