@@ -141,10 +141,11 @@ void app_main(void)
 
     /* Audio tasks */
     EventGroupHandle_t stream_event_group = xEventGroupCreate();
+    EventGroupHandle_t audio_event_group = xEventGroupCreate();
 
     init_pipeline();
-    stream_init(stream_event_group);
-    audio_init();
+    stream_init();
+    audio_init(audio_event_group);
     mp3_decode_init();
-    supervisor_init(stream_event_group);
+    supervisor_init(audio_event_group);
 }

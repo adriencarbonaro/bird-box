@@ -14,8 +14,6 @@ static const char* TAG = "stream";
 static volatile bool stop_playback = false;
 static uint8_t buffer[HTTP_READ_CHUNK];
 
-static EventGroupHandle_t task_event_group = NULL;
-
 TaskHandle_t stream_task_handle = NULL;
 extern TaskHandle_t supervisor_task_handle;
 
@@ -48,9 +46,14 @@ static void stream_task(void *arg)
         ESP_LOGI(TAG, "Waiting for start command");
         uint32_t cmd;
         xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
-        if (cmd != 1) continue;
-
-        ESP_LOGI(TAG, "Stream task start");
+        if (cmd == 2)
+        {
+            ESP_LOGI(TAG, "task (waiting for start) stopped by supervisor");
+            stop(client);
+            continue;
+        }
+        else if (cmd != 1) continue;
+        ESP_LOGI(TAG, "task starts");
 
         if (esp_http_client_open(client, 0) != ESP_OK)
         {
@@ -93,10 +96,8 @@ static void stream_task(void *arg)
     }
 }
 
-void stream_init(EventGroupHandle_t event_group)
+void stream_init(void)
 {
-    task_event_group = event_group;
-
     xTaskCreatePinnedToCore(stream_task,
         "stream_task",
         16384,

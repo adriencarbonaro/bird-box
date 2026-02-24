@@ -20,7 +20,7 @@ extern TaskHandle_t stream_task_handle;
 extern TaskHandle_t mp3_task_handle;
 extern TaskHandle_t audio_task_handle;
 
-static EventGroupHandle_t stream_task_event_group = NULL;
+static EventGroupHandle_t audio_task_event_group = NULL;
 
 extern RingbufHandle_t mp3_rb;
 extern RingbufHandle_t pcm_rb;
@@ -123,9 +123,10 @@ static void supervisor_task(void *arg)
             }
         }
 
-        if (xEventGroupWaitBits(stream_task_event_group, 1, pdTRUE, pdFALSE, pdMS_TO_TICKS(10)))
+        uint32_t bits = xEventGroupWaitBits(audio_task_event_group, 1, pdTRUE, pdFALSE, pdMS_TO_TICKS(10));
+        if (bits & 1)
         {
-            ESP_LOGI(TAG, "Indication stream ended");
+            ESP_LOGI(TAG, "Indication audio ended");
             stop();
         }
     }
@@ -138,9 +139,9 @@ void supervisor_event(task_cmd_t* event)
     xQueueSend(supervisor_cmd_queue, event, 0);
 }
 
-void supervisor_init(EventGroupHandle_t stream_event_group)
+void supervisor_init(EventGroupHandle_t audio_event_group)
 {
-    stream_task_event_group = stream_event_group;
+    audio_task_event_group = audio_event_group;
 
     supervisor_cmd_queue = xQueueCreate(8, sizeof(task_cmd_t));
 

@@ -1,6 +1,9 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 /* ===== Audio format ===== */
 #define BYTES_PER_SAMPLE      2
 #define CHANNELS              1
@@ -18,7 +21,7 @@
 #define I2S_WRITE_CHUNK       1024
 
 
-void audio_init(void);
+void audio_init(EventGroupHandle_t event_group);
 void audio_task(void *arg);
 void audio_stop(void);
 void audio_start(void);

@@ -26,6 +26,7 @@ static const char* TAG = "mp3_task";
 static void stop(void)
 {
     if (decoder != NULL) MP3FreeDecoder(decoder);
+    decoder = NULL;
 
     xTaskNotify(supervisor_task_handle, 1, eSetValueWithOverwrite);
 }
@@ -40,13 +41,12 @@ void mp3_decode_task(void *arg)
         xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
         if (cmd == 2)
         {
-            ESP_LOGW(TAG, "mp3 task stopping before even start");
-            break;
+            ESP_LOGI(TAG, "task (waiting for start) stopped by supervisor");
+            stop();
+            continue;
         }
-        else if (cmd == 1)
-        {
-            ESP_LOGI(TAG, "mp3 task start");
-        }
+        else if (cmd != 1) continue;
+        ESP_LOGI(TAG, "task starts");
 
         decoder = MP3InitDecoder();
         if (!decoder)

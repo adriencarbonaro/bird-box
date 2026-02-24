@@ -14,6 +14,7 @@ static volatile float volume = AMPLIFY_GAIN;
 static const uint8_t silence[I2S_WRITE_CHUNK] = {0};
 static uint8_t out[I2S_WRITE_CHUNK] = {0};
 
+static EventGroupHandle_t task_event_group = NULL;
 TaskHandle_t audio_task_handle = NULL;
 extern TaskHandle_t supervisor_task_handle;
 
@@ -85,6 +86,8 @@ static void stop(void)
     // Now disable
     i2s_channel_disable(tx_chan);
 
+    i2s_channel_enable(tx_chan);
+
     xTaskNotify(supervisor_task_handle, 1, eSetValueWithOverwrite);
 }
 
@@ -98,14 +101,12 @@ void audio_task(void *arg)
         xTaskNotifyWait(0, 0xFFFFFFFF, &cmd, portMAX_DELAY);
         if (cmd == 2)
         {
-            ESP_LOGW(TAG, "audio task stopping before even start");
-            break;
+            ESP_LOGI(TAG, "task (waiting for start) stopped by supervisor");
+            stop();
+            continue;
         }
-        else if (cmd == 1)
-        {
-            ESP_LOGI(TAG, "audio task start");
-            i2s_channel_enable(tx_chan);
-        }
+        else if (cmd != 1) continue;
+        ESP_LOGI(TAG, "task starts");
 
         size_t bytes_written;
 
@@ -144,16 +145,12 @@ void audio_task(void *arg)
             {
                 size_t bytes_available = 0;
 
-                ESP_LOGW(TAG, "Trying to fetch %u", I2S_WRITE_CHUNK - copied);
-
                 uint8_t* data = (uint8_t*)xRingbufferReceiveUpTo(
                     pcm_rb,
                     &bytes_available,
                     pdMS_TO_TICKS(5),
                     I2S_WRITE_CHUNK - copied
                 );
-
-                ESP_LOGW(TAG, "Fetched %u", bytes_available);
 
                 if (!data)
                 {
@@ -173,6 +170,9 @@ void audio_task(void *arg)
 
                 vRingbufferReturnItem(pcm_rb, data);
             }
+
+            if (copied == 0)
+                xEventGroupSetBits(task_event_group, 1);
 
             /* Fill remaining space with silence */
             if (copied < I2S_WRITE_CHUNK)
@@ -197,8 +197,10 @@ void audio_task(void *arg)
     }
 }
 
-void audio_init(void)
+void audio_init(EventGroupHandle_t event_group)
 {
+    task_event_group = event_group;
+
     i2s_init();
 
     xTaskCreatePinnedToCore(audio_task,
