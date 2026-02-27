@@ -1,5 +1,7 @@
 # Bird-Box 🐦🔊
 
+![](./docs/birdbox_banner.png)
+
 An ESP32-powered ambient audio box that streams birds and nature sounds to a ceiling speaker — perfect for bathrooms, hallways, or quiet spaces.
 
 Bird-Box automatically plays audio streams when triggered (e.g. via MQTT/Home Assistant), creating a subtle and immersive nature atmosphere.
