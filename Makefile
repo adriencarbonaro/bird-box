@@ -4,7 +4,7 @@
 # Paths
 PROJECT_DIR := $(CURDIR)
 BUILD_DIR := $(PROJECT_DIR)/build
-VERSION_FILE := $(PROJECT_DIR)/main/version.h
+SCRIPT_DIR := $(PROJECT_DIR)/scripts
 
 # Toolchain setup
 export PATH := $(IDF_PATH)/tools:$(PATH)
@@ -21,7 +21,7 @@ export BATCH_BUILD=1
 all: build
 
 version:
-	python make_version.py
+	python $(SCRIPT_DIR)/build_version.py $(BUILD_DIR)/version.h .
 
 # --- Build rules ---
 menuconfig:
