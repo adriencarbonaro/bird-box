@@ -21,18 +21,20 @@ static const ha_entity_t s_entities[] = {
     {
         .id = "volume",
         .name = "Playing volume",
-        .platform = HA_INPUT_NUMBER,
+        .platform = HA_NUMBER,
         .state_topic = "volume/state",
         .command_topic = "volume/set",
         .on_command = on_volume,
         .icon = "mdi:volume-high",
+        .extra = \
+            "\"mode\":\"slider\""
     },
     {
         .id = "play",
         .name = "Play",
         .platform = HA_BUTTON,
         .on_command = on_command_play,
-        .command_topic = "set",
+        .command_topic = "play",
         .icon = "mdi:play-circle",
     },
     {
@@ -40,7 +42,7 @@ static const ha_entity_t s_entities[] = {
         .name = "Pause",
         .platform = HA_BUTTON,
         .on_command = on_command_pause,
-        .command_topic = "set",
+        .command_topic = "pause",
         .icon = "mdi:pause-circle",
     },
 };

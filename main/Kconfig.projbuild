@@ -10,36 +10,7 @@ config BIRDBOX_AMPLIFY_GAIN
 config BIRDBOX_MP3_SERVER_URL
     string "Audio Server URL (format: http://[IP]:[PORT])"
 
-# Wifi configuration -----------------------------------------------------------
-
-config BIRDBOX_WIFI_SSID
-    string "WiFi SSID"
-
-config BIRDBOX_WIFI_PASSWORD
-    string "WiFi Password"
-
-# MQTT configuration -----------------------------------------------------------
-
-config BIRDBOX_MQTT_URI
-    string "MQTT Uri (format: mqtt://[USER]:[PASSWORD]@[HOST]:[PORT])"
-
-config BIRDBOX_MQTT_TOPIC_SET
-    string "MQTT set topic name"
-
-config BIRDBOX_MQTT_TOPIC_VERSION
-    string "MQTT version topic name"
-
-config BIRDBOX_MQTT_TOPIC_VOLUME
-    string "MQTT volume topic name"
-
-config BIRDBOX_MQTT_TOPIC_STATE
-    string "MQTT state topic name"
-
-config BIRDBOX_MQTT_MSG_PLAY
-    string "MQTT message to indicate play"
-
-config BIRDBOX_MQTT_MSG_PAUSE
-    string "MQTT message to indicate pause"
+# HA identity configuration -----------------------------------------------------------
 
 config DEVICE_ID
     string "The Home Assistant device ID (lowercase)"

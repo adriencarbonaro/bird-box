@@ -35,7 +35,14 @@ static const char* state_str_list[] = {
 /* Static functions ***********************************************************/
 static void update_state(state_t state)
 {
-    ha_publish(MQTT_TOPIC_STATE, state_str_list[state]);
+    ha_publish("state", state_str_list[state]);
+}
+
+static void update_volume(float volume)
+{
+    const char volume_str[50] = {0};
+    snprintf((char*)volume_str, sizeof(volume_str), "%.2f", volume);
+    ha_publish("volume", volume_str);
 }
 
 static void flush_ringbuffer(RingbufHandle_t rb)
@@ -123,6 +130,7 @@ static void supervisor_task(void *arg)
                 {
                     set_volume(cmd.volume);
                     ESP_LOGI(TAG, "Volume changed: %.2f", cmd.volume);
+                    update_volume(cmd.volume);
                     break;
                 }
 
