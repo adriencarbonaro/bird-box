@@ -1,0 +1,6 @@
+[submodule "components/ha-mqtt"]
+	path = components/ha-mqtt
+	url = git@github.com:adriencarbonaro/ha-mqtt-esp32.git
+[submodule "components/wifi"]
+	path = components/wifi
+	url = git@github.com:adriencarbonaro/wifi-esp32.git

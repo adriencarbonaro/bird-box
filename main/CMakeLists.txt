@@ -1,5 +1,6 @@
 set(srcs
     main.c
+    ha_entities.c
     audio/audio.c
     audio/audio.h
     stream/stream.c
@@ -8,12 +9,8 @@ set(srcs
     supervisor/supervisor.h
     mp3/mp3.c
     mp3/mp3.h
-    mqtt/mqtt.c
-    mqtt/mqtt.h
     utils/types.h
     utils/utils.h
-    wifi/wifi.c
-    wifi/wifi.h
 )
 
 idf_component_register(
@@ -21,16 +18,19 @@ idf_component_register(
     INCLUDE_DIRS "."
                  "audio"
                  "mp3"
-                 "mqtt"
                  "stream"
                  "supervisor"
                  "utils"
-                 "wifi"
     REQUIRES esp_driver_i2s
              esp_driver_gpio
              esp_http_client
              esp_ringbuf
-             esp_wifi
-             nvs_flash
-             mqtt
+             ha-mqtt
+             wifi
+)
+
+# Resolve version.h, generated into the build dir by the Makefile `version`
+# target (scripts/build_version.py).
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${CMAKE_BINARY_DIR}/"
 )

@@ -15,18 +15,17 @@
 
 #include "audio.h"
 #include "config.h"
+#include "ha.h"
+#include "ha_entities.h"
 #include "mp3.h"
 #include "mqtt.h"
+#include "sdkconfig.h"
 #include "stream.h"
 #include "supervisor.h"
 #include "utils.h"
 #include "utils/types.h"
+#include "version.h"
 #include "wifi.h"
-
-/* Prototypes *****************************************************************/
-
-static void on_set    (const char* msg, uint16 msg_len, task_cmd_t* event);
-static void on_volume (const char* msg, uint16 msg_len, task_cmd_t* event);
 
 /* Global pointers ************************************************************/
 
@@ -34,99 +33,56 @@ static const char *TAG = "main";
 
 /* Structs - Enums ************************************************************/
 
-typedef struct {
-    const char* topic;
-    void (*handler)(const char* msg, uint16 msg_len, task_cmd_t* event);
-} mqtt_config_t;
-
 /* Global objects *************************************************************/
-
-static const mqtt_config_t mqtt_topic_config[] = {
-    { MQTT_TOPIC_SET,    on_set },
-    { MQTT_TOPIC_VOLUME, on_volume },
+static const ha_identity_t identity = {
+    .device_id = CONFIG_DEVICE_ID,
+    .device_name = CONFIG_DEVICE_NAME,
+    .manufacturer = CONFIG_MANUFACTURER,
+    .model = CONFIG_MODEL,
+    .version_str = DESCRIBE,
 };
 
 /* Static functions ***********************************************************/
 
-static int is_topic(const char* config_topic,
-                    const char* topic,
-                    uint16 topic_len)
-{
-    return strncmp(config_topic, topic, topic_len) == 0;
-}
+#define ON_COMMAND_HANDLER(name, cmd) \
+    void on_command_##name(const char* id, const char* payload) \
+    { \
+        task_cmd_t event; \
+        memset(&event, 0, sizeof(event)); \
+        event.type = CMD_##cmd; \
+        supervisor_event(&event); \
+    }
 
-static void on_msg(const char* topic,
-                   int topic_len,
-                   const char* msg,
-                   int msg_len)
+ON_COMMAND_HANDLER(play, PLAY)
+ON_COMMAND_HANDLER(pause, PAUSE)
+
+void on_volume(const char* id, const char* payload)
 {
     task_cmd_t event;
     memset(&event, 0, sizeof(event));
 
-    for (uint16 i = 0; i < ARRAY_DIM(mqtt_topic_config); i++)
-    {
-        mqtt_config_t mqtt_topic_config_item = mqtt_topic_config[i];
-        if (is_topic(mqtt_topic_config_item.topic, topic, topic_len))
-        {
-            mqtt_topic_config_item.handler(msg, msg_len, &event);
-            break;
-        }
-    }
+    event.type = CMD_VOLUME;
+
+    // copy payload into null-terminated buffer
+    char buf[16];
+    int copy_len = MIN(strlen(payload), sizeof(buf) - 1);
+    memcpy(buf, payload, copy_len);
+    buf[copy_len] = '\0';
+
+    event.volume = atof(buf);
+    ESP_LOGI(TAG, "Parsed volume: %.2f", event.volume);
 
     supervisor_event(&event);
 }
 
-static void configure_subscriptions(void)
-{
-    for (uint16 i = 0; i < ARRAY_DIM(mqtt_topic_config); i++)
-    {
-        mqtt_subscribe_topic(mqtt_topic_config[i].topic);
-    }
-    mqtt_subscribe_listener(on_msg);
-}
-
-static void on_set(const char* msg, uint16 msg_len, task_cmd_t* event)
-{
-    memset(event, 0, sizeof(event));
-
-    if (strncmp(msg, MQTT_MSG_PLAY, msg_len) == 0)
-    {
-        event->type = CMD_PLAY;
-    }
-    else if (strncmp(msg, MQTT_MSG_PAUSE, msg_len) == 0)
-    {
-        event->type = CMD_PAUSE;
-    }
-    else
-        return;
-}
-
-static void on_volume(const char* msg, uint16 msg_len, task_cmd_t* event)
-{
-    memset(event, 0, sizeof(event));
-
-    event->type = CMD_VOLUME;
-
-    // copy payload into null-terminated buffer
-    char buf[16];
-    int copy_len = MIN(msg_len, sizeof(buf) - 1);
-    memcpy(buf, msg, copy_len);
-    buf[copy_len] = '\0';
-
-    event->volume = atof(buf);
-    ESP_LOGI(TAG, "Parsed volume: %.2f", event->volume);
-}
-
 void app_main(void)
 {
-    /* Wifi driver */
-    EventGroupHandle_t s_wifi_event_group = xEventGroupCreate();
-    wifi_init(s_wifi_event_group);
+    /* Init Home Assistant layer */
+    uint16_t nb_entities = 0;
+    const ha_entity_t* entities = get_entities(&nb_entities);
+    ha_init(&identity, entities, nb_entities);
 
-    /* MQTT driver */
-    mqtt_init();
-    configure_subscriptions();
-    mqtt_start(s_wifi_event_group);
+    wifi_init(mqtt_start, NULL);
 
     supervisor_init();
 }

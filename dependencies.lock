@@ -9,13 +9,24 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.0.3
+  espressif/mqtt:
+    component_hash: fb18bc3b65aa8c94693a9811ffc322cca8a65d92d5ec84983d3e385080e3969c
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.1.0
   idf:
     source:
       type: idf
-    version: 5.5.1
+    version: 6.0.2
 direct_dependencies:
 - chmorgan/esp-libhelix-mp3
+- espressif/mqtt
 - idf
-manifest_hash: c1e52fb88e627445b7e7ca69da801ad10378714845ff54c77595ed91b1c457ea
+manifest_hash: 3d74663fa439d3e700a15070441c4b81e8420c3a26c9082abf10f01635ecf962
 target: esp32
-version: 2.0.0
+version: 3.0.0

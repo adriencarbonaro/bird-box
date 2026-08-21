@@ -41,4 +41,20 @@ config BIRDBOX_MQTT_MSG_PLAY
 config BIRDBOX_MQTT_MSG_PAUSE
     string "MQTT message to indicate pause"
 
+config DEVICE_ID
+    string "The Home Assistant device ID (lowercase)"
+    default "bird_box"
+
+config DEVICE_NAME
+    string "The Home Assistant device name"
+    default "Bird Box"
+
+config MANUFACTURER
+    string "The Home Assistant manufacturer name"
+    default "Carbonaro"
+
+config MODEL
+    string "The Home Assistant model name"
+    default "ESP32"
+
 endmenu

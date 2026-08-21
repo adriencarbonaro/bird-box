@@ -9,7 +9,7 @@
 #include "freertos/task.h"
 #include "types.h"
 #include "mp3.h"
-#include "mqtt.h"
+#include "ha.h"
 #include "stream.h"
 
 /* Global objects *************************************************************/
@@ -35,7 +35,7 @@ static const char* state_str_list[] = {
 /* Static functions ***********************************************************/
 static void update_state(state_t state)
 {
-    send_state(state_str_list[state]);
+    ha_publish(MQTT_TOPIC_STATE, state_str_list[state]);
 }
 
 static void flush_ringbuffer(RingbufHandle_t rb)
