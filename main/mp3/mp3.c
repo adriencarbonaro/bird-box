@@ -1,6 +1,7 @@
 #include "mp3.h"
 
 #include "audio.h"
+#include "config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
@@ -9,8 +10,16 @@
 #include "mp3dec.h"
 
 #define MP3_INPUT_CHUNK_SIZE  (1024)
-#define PCM_OUTPUT_SAMPLES    (1152)
-#define LEFTOVER_SIZE         (512)
+
+/* Helix can emit MAX_NGRAN granules of 576 samples on MAX_NCHAN channels in a
+ * single frame. A false sync word yields a header that claims stereo even on a
+ * mono stream, so this is sized for the decoder's worst case, not for the
+ * format we expect to receive. */
+#define PCM_OUTPUT_SAMPLES    (MAX_NCHAN * MAX_NGRAN * 576)
+
+/* Holds any legal MP3 frame (1441 bytes max, at 320 kbps / 32 kHz) so an
+ * incomplete frame can always be carried over to the next read. */
+#define LEFTOVER_SIZE         (1600)
 #define DATA_BUFFER_SIZE      (MP3_INPUT_CHUNK_SIZE + LEFTOVER_SIZE)
 
 extern RingbufHandle_t mp3_rb;
@@ -70,13 +79,16 @@ void mp3_decode_task(void *arg)
             return;
         }
 
-        /* Create PCM out buffer */
-        int16_t pcm_out[PCM_OUTPUT_SAMPLES];
-        memset(pcm_out, 0, PCM_OUTPUT_SAMPLES * sizeof(int16_t));
+        /* These live in .bss rather than on the stack: this task is a
+         * singleton, they are the largest buffers here, and keeping them off
+         * the outermost stack frame means a decoder overrun can no longer
+         * reach the heap block sitting behind the task stack. */
+        static int16_t pcm_out[PCM_OUTPUT_SAMPLES];
+        static uint8_t leftover[LEFTOVER_SIZE];
+        static uint8_t data[DATA_BUFFER_SIZE];
 
-        /* Create leftover buffer */
-        uint8_t leftover[LEFTOVER_SIZE];
-        memset(leftover, 0, LEFTOVER_SIZE);
+        memset(pcm_out, 0, sizeof(pcm_out));
+        memset(leftover, 0, sizeof(leftover));
         size_t leftover_len = 0;
 
         while(1)
@@ -103,7 +115,6 @@ void mp3_decode_task(void *arg)
                 break;
             }
 
-            uint8_t data[DATA_BUFFER_SIZE];
             memset(data, 0, DATA_BUFFER_SIZE);
 
             memcpy(data, leftover, leftover_len);
@@ -112,44 +123,83 @@ void mp3_decode_task(void *arg)
             vRingbufferReturnItem(mp3_rb, new_data);
 
             uint8_t *read_ptr = data;
-            uint8_t *backup = NULL;
-            size_t backup_len = 0;
+
+            /* Bytes we could not consume this round, carried to the next read */
+            uint8_t *carry = NULL;
+            size_t carry_len = 0;
 
             int bytes_left = bytes_available + leftover_len;
 
-            int err = 0;
             leftover_len = 0;
 
             while (bytes_left > 0)
             {
                 int offset = MP3FindSyncWord(read_ptr, bytes_left);
                 if (offset < 0)
+                {
+                    /* No sync word in the tail. Carry it rather than dropping
+                     * it: a sync can straddle the read boundary, and losing
+                     * those bytes desynchronises the stream and forces a
+                     * resync on random data. */
+                    carry = read_ptr;
+                    carry_len = bytes_left;
                     break;
+                }
 
                 read_ptr += offset;
                 bytes_left -= offset;
 
-                /* If decoding fails, keep backup to prepend next buffer */
-                backup = read_ptr;
-                backup_len = bytes_left;
+                uint8_t *frame_start = read_ptr;
+                size_t frame_bytes_left = bytes_left;
 
-                err = MP3Decode(decoder, &read_ptr, &bytes_left, pcm_out, 0);
+                int err = MP3Decode(decoder, &read_ptr, &bytes_left, pcm_out, 0);
+
+                if (err == ERR_MP3_INVALID_FRAMEHEADER)
+                {
+                    /* False sync. MP3Decode rejects the header before it
+                     * touches read_ptr/bytes_left, so step over the sync byte
+                     * and keep scanning this buffer. */
+                    read_ptr = frame_start + 1;
+                    bytes_left = (int)frame_bytes_left - 1;
+                    continue;
+                }
 
                 if (err != 0)
+                {
+                    /* Incomplete frame: carry it to the next read. */
+                    carry = frame_start;
+                    carry_len = frame_bytes_left;
                     break;
+                }
 
                 MP3FrameInfo frameInfo;
                 MP3GetLastFrameInfo(decoder, &frameInfo);
-                int pcm_bytes = frameInfo.outputSamps * sizeof(int16_t);
+
+                /* A frame decoded off a false sync can report a format we
+                 * never asked for. Drop it instead of feeding the pipeline
+                 * garbage at the wrong channel count or rate. */
+                if (frameInfo.nChans != CHANNELS || frameInfo.samprate != SAMPLE_RATE)
+                {
+                    ESP_LOGW(TAG, "Dropping frame: %d ch, %d Hz",
+                             frameInfo.nChans, frameInfo.samprate);
+                    continue;
+                }
+
+                size_t pcm_bytes = (size_t)frameInfo.outputSamps * sizeof(int16_t);
+                if (pcm_bytes > sizeof(pcm_out))
+                    pcm_bytes = sizeof(pcm_out);
 
                 xRingbufferSend(pcm_rb, pcm_out, pcm_bytes, pdMS_TO_TICKS(100));
             }
 
-            if (err != 0)
+            if (carry != NULL && carry_len > 0)
             {
-                leftover_len = backup_len;
+                if (carry_len > LEFTOVER_SIZE)
+                    carry_len = LEFTOVER_SIZE;
+
                 memset(leftover, 0, LEFTOVER_SIZE);
-                memcpy(leftover, backup, leftover_len);
+                memcpy(leftover, carry, carry_len);
+                leftover_len = carry_len;
             }
 
             if (check_supervisor_stop()) break;
