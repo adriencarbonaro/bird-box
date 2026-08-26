@@ -125,24 +125,71 @@ void audio_task(void *arg)
 
         size_t bytes_written;
 
-        /* Prebuffer */
+        /* Prebuffer.
+         *
+         * Waiting on a byte target alone deadlocks whenever the stream holds
+         * less PCM than the target: nothing downstream can report the end of
+         * playback because that only happens once we reach the write loop
+         * below. So also stop waiting when the buffer stops growing, which
+         * covers both a short stream and a dead producer. */
+        size_t   used = 0;
+        size_t   last_used = 0;
+        uint32_t stalled_ms = 0;
+        uint32_t waited_ms = 0;
+        bool     stopped = false;
+
         while (1)
         {
-            if (check_supervisor_stop()) break;
+            if (check_supervisor_stop()) { stopped = true; break; }
 
             size_t free = xRingbufferGetCurFreeSize(pcm_rb);
-            size_t used = PCM_RING_SIZE - free;
+            used = (free < PCM_RING_SIZE) ? (PCM_RING_SIZE - free) : 0;
 
-            ESP_LOGI(TAG, "Prebuffering ... (%u bytes filled)", used);
-
-            if (used >= 21888)
+            if (used >= PREBUFFER_SIZE)
             {
-                ESP_LOGI(TAG, "Done prebuffering ... (%u bytes filled)", used);
+                ESP_LOGI(TAG, "Prebuffered %u bytes (target reached)", used);
                 break;
             }
 
-            vTaskDelay(pdMS_TO_TICKS(10));
+            if (used > last_used)
+            {
+                last_used = used;
+                stalled_ms = 0;
+            }
+            else
+            {
+                stalled_ms += PREBUFFER_POLL_MS;
+            }
+
+            /* Stream was shorter than the target: play what we have. */
+            if (used > 0 && stalled_ms >= PREBUFFER_STALL_MS)
+            {
+                ESP_LOGI(TAG, "Prebuffered %u bytes (stream shorter than target)", used);
+                break;
+            }
+
+            if (waited_ms >= PREBUFFER_MAX_WAIT_MS)
+            {
+                ESP_LOGW(TAG, "Prebuffer timed out (%u bytes)", used);
+                break;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(PREBUFFER_POLL_MS));
+            waited_ms += PREBUFFER_POLL_MS;
         }
+
+        if (stopped) continue;
+
+        if (used == 0)
+        {
+            ESP_LOGW(TAG, "No audio data, aborting playback");
+            xEventGroupSetBits(task_stop_event_group,
+                               BIT(STOP_REASON_AUDIO_ENDED));
+            continue;
+        }
+
+        size_t empty_rounds = 0;
+        bool   eof_signalled = false;
 
         while (1)
         {
@@ -161,13 +208,14 @@ void audio_task(void *arg)
 
                 if (!data)
                 {
-                    ESP_LOGW(TAG, "No data (copied=%u)", copied);
+                    ESP_LOGD(TAG, "Underrun (copied=%u)", copied);
                     break;
                 }
 
                 if (bytes_available == 0)
                 {
-                    ESP_LOGW(TAG, "No bytes avail");
+                    ESP_LOGD(TAG, "Empty item");
+                    vRingbufferReturnItem(pcm_rb, data);
                     break;
                 }
 
@@ -178,9 +226,25 @@ void audio_task(void *arg)
                 vRingbufferReturnItem(pcm_rb, data);
             }
 
+            /* A single dry poll is a 5 ms underrun, not the end of the
+             * stream. Only give up once the ring has stayed completely empty
+             * for AUDIO_EOF_SILENCE_MS. */
             if (copied == 0)
-                xEventGroupSetBits(task_stop_event_group,
-                                   BIT(STOP_REASON_AUDIO_ENDED));
+            {
+                if (!eof_signalled && ++empty_rounds >= AUDIO_EOF_EMPTY_ROUNDS)
+                {
+                    ESP_LOGI(TAG, "PCM ring dry for %u ms, ending playback",
+                             (unsigned)AUDIO_EOF_SILENCE_MS);
+                    xEventGroupSetBits(task_stop_event_group,
+                                       BIT(STOP_REASON_AUDIO_ENDED));
+                    eof_signalled = true;
+                }
+            }
+            else
+            {
+                empty_rounds = 0;
+                eof_signalled = false;
+            }
 
             /* Fill remaining space with silence */
             if (copied < I2S_WRITE_CHUNK)
